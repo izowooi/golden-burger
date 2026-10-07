@@ -1,7 +1,7 @@
 # Dashboard read-model contract (Supabase Storage bucket `polylab`, private)
 
 Writer: `polylab publish` (Mac mini, every 5 min) and `polylab retro` (reports).
-Reader: `dashboard/` server routes with `SUPABASE_URL` + `SUPABASE_SECRET_KEY` (never exposed to the browser).
+Reader: the `dashboard/` static pages, in the browser, via the worker proxy `/data/<path>` (`dashboard/worker/index.ts`), which holds `SUPABASE_URL` + `SUPABASE_SECRET_KEY` (never exposed to the browser). Values must be strict JSON: no `NaN`/`Infinity` (the publisher writes them as `null`).
 Object API: `GET {SUPABASE_URL}/storage/v1/object/polylab/<path>` with `apikey` + `Authorization: Bearer` headers.
 All times are ISO-8601 UTC strings (`...Z`); the dashboard renders KST. Money is USDC floats. Missing/unknown = `null`, never 0.
 

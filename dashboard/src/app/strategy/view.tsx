@@ -1,32 +1,27 @@
-import type { Metadata } from "next";
+"use client";
+
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { useEffect } from "react";
 
 import { EquityChart, InlineBar } from "@/components/charts";
 import { TxGroups, TxLegend, TxTotalsTable } from "@/components/transactions";
-import { Generated, LoadState, ModeBadge } from "@/components/ui";
+import { Generated, Loading, LoadState, ModeBadge } from "@/components/ui";
 import { kst, num, paramValue, pct, signedPct, signedUsd, tone, usd } from "@/lib/format";
 import { exitLabel, exitRuleSummary, isTrack1 } from "@/lib/labels";
-import { loadJson, STRATEGY_ID } from "@/lib/storage";
+import { STRATEGY_ID, useJson, usePathSegments } from "@/lib/storage";
 import type { BreakdownRow, ClosedPosition, Overview, ParamVersion, StakeEvent, StrategyDetail, StrategySummary, Transaction } from "@/lib/types";
 
-export const dynamic = "force-dynamic";
-
-type Props = { params: Promise<{ id: string }> };
-
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { id } = await params;
-  return { title: id };
-}
-
-export default async function StrategyPage({ params }: Props) {
-  const { id } = await params;
-  if (!STRATEGY_ID.test(id)) notFound();
-  const [ov, det, tx] = await Promise.all([
-    loadJson<Overview>("latest/overview.json"),
-    loadJson<StrategyDetail>(`latest/strategies/${id}.json`),
-    loadJson<Transaction[]>("latest/transactions_24h.json"),
-  ]);
+/** Served for /strategies/<id> by worker/index.ts (the static export has no dynamic routes). */
+export default function StrategyView() {
+  const seg = usePathSegments("strategies");
+  const id = seg && STRATEGY_ID.test(seg) ? seg : null;
+  const ov = useJson<Overview>(id ? "latest/overview.json" : null);
+  const det = useJson<StrategyDetail>(id ? `latest/strategies/${id}.json` : null);
+  const tx = useJson<Transaction[]>(id ? "latest/transactions_24h.json" : null);
+  useEffect(() => { if (id) document.title = `${id} · Polylab`; }, [id]);
+  if (seg === undefined) return <Loading />;
+  if (!id) return <><h1>찾을 수 없음</h1><p className="sub">전략 id 가 올바르지 않습니다. <Link href="/">개요로</Link></p></>;
+  if (!ov || !det || !tx) return <><h1>{id}</h1><Loading /></>;
   const myTx = tx.state === "ok" && Array.isArray(tx.data) ? tx.data.filter((t) => t.variant_id === id) : [];
   const summary = ov.state === "ok" ? ov.data.strategies?.find((s) => s.id === id) ?? null : null;
   const detail = det.state === "ok" ? det.data : null;

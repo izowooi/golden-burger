@@ -1,4 +1,3 @@
-import Link from "next/link";
 
 import { ModeBadge } from "@/components/ui";
 import { DASH, kst, num, signedUsd, tone, usd } from "@/lib/format";
@@ -33,7 +32,7 @@ function fees(t: Totals) {
 function TotalsRow({ label, t, mode, href }: { label: React.ReactNode; t: Totals; mode?: string | null; href?: string }) {
   return (
     <tr>
-      <td>{href ? <Link href={href}><strong>{label}</strong></Link> : <strong>{label}</strong>} {mode !== undefined && <ModeBadge mode={mode} />}</td>
+      <td>{href ? <a href={href}><strong>{label}</strong></a> : <strong>{label}</strong>} {mode !== undefined && <ModeBadge mode={mode} />}</td>
       <td className="n">{num(t.games)}</td>
       <td className="n">
         {num(t.confirmed)}
@@ -94,7 +93,7 @@ export function TxGroups({ rows, showVariant = true }: { rows: Transaction[]; sh
             return (
               <section key={v.variant_id} className="tx-variant">
                 <div className="tx-variant-head">
-                  {showVariant && <Link href={`/strategies/${v.variant_id}`}><strong>{v.variant_id}</strong></Link>}
+                  {showVariant && <a href={`/strategies/${v.variant_id}`}><strong>{v.variant_id}</strong></a>}
                   <ModeBadge mode={v.mode} />
                   {v.account && <span className="muted">계정 {v.account}</span>}
                   <span className="tx-pos">

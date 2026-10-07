@@ -312,6 +312,8 @@ def open_position_rows(v, df: pd.DataFrame, core: CoreLookup, now: int) -> list[
     marks = core.marks(opens["token_id"].tolist(), now)
     rows = []
     for r in opens.to_dict("records"):
+        # pending maker entries have no confirmed fill yet: pandas reads their NULLs as NaN
+        r = {k: (None if isinstance(x, float) and x != x else x) for k, x in r.items()}
         desc = _describe(core, r.get("game_key"), r["condition_id"], r["token_id"], r.get("outcome_label"),
                          r.get("sport"), r.get("league"))
         mark = marks.get(r["token_id"])

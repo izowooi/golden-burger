@@ -101,3 +101,9 @@ def test_storage_headers(monkeypatch):
     snapshot.Storage("https://x.supabase.co", "k").upload("dev/a.json", b"{}")
     assert seen["url"] == "https://x.supabase.co/storage/v1/object/polylab/dev/a.json"
     assert seen["headers"]["x-upsert"] == "true" and seen["headers"]["Authorization"] == "Bearer k"
+
+
+def test_dump_writes_non_finite_floats_as_null():
+    # pending maker entries carry NaN price/cost from pandas; one NaN made JSON.parse reject overview.json
+    out = json.loads(snapshot._dump({"a": float("nan"), "b": [float("inf"), 1.5], "c": {"d": -float("inf")}}))
+    assert out == {"a": None, "b": [None, 1.5], "c": {"d": None}}

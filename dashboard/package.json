@@ -4,26 +4,21 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "dev:fixtures": "DASHBOARD_FIXTURES=1 next dev",
-    "build": "next build",
-    "start": "next start",
-    "start:fixtures": "DASHBOARD_FIXTURES=1 next start",
+    "dev:fixtures": "rm -rf public/__fixtures && mkdir -p public && cp -R fixtures public/__fixtures && NEXT_PUBLIC_DASHBOARD_FIXTURES=1 NEXT_PUBLIC_DATA_BASE=/__fixtures/ next dev",
+    "build": "rm -rf public/__fixtures out && next build",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "cf:build": "opennextjs-cloudflare build",
-    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
-    "deploy": "opennextjs-cloudflare build && wrangler deploy"
+    "preview": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
     "next": "16.3.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-markdown": "10.1.0",
-    "remark-gfm": "4.0.1",
-    "server-only": "0.0.1"
+    "remark-gfm": "4.0.1"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "1.20.2",
     "@types/node": "20.19.43",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",

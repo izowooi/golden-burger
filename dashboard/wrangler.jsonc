@@ -1,12 +1,14 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "ipoly",
-  "main": ".open-next/worker.js",
+  // Static export (out/) + a tiny data proxy; see worker/index.ts for why there is no server rendering.
+  "main": "worker/index.ts",
   "compatibility_date": "2026-06-23",
-  "compatibility_flags": ["nodejs_compat"],
   "assets": {
-    "directory": ".open-next/assets",
-    "binding": "ASSETS"
+    "directory": "out",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    "run_worker_first": ["/data/*", "/strategies/*", "/reports/daily/*", "/reports/weekly/*", "/reports/monthly/*"]
   },
   "observability": {
     "enabled": true

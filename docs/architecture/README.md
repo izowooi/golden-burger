@@ -198,5 +198,5 @@ flowchart LR
 | 데이터 | SQLite(WAL) on 외장 SSD, parquet(연구 export), gzip JSONL(WebSocket 원본) |
 | 시장 API | Polymarket Gamma · CLOB · Data API v2 · Sports/Market WebSocket, `py-clob-client-v2`, `polymarket-client` |
 | AI | Claude Code CLI(`claude -p`, 1차), OpenAI Codex CLI(`codex exec`, 2차·검토) |
-| 배포·가시화 | Supabase Storage(read model), Next.js + OpenNext on Cloudflare Workers, Slack incoming webhook |
+| 배포·가시화 | Supabase Storage(read model), Next.js 정적 export(브라우저 렌더링) + Cloudflare Worker 데이터 프록시(`/data/*`, 무료 플랜 CPU 10ms 대응), Slack incoming webhook |
 | 형상 관리 | GitHub 공개 저장소(autopilot 은 deploy key 로 push) |

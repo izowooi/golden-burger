@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 
 import { ThemeToggle } from "@/components/theme-toggle";
-import { isFixtureMode } from "@/lib/storage";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -22,7 +21,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
       </head>
       <body>
-        {isFixtureMode() && <div className="fixture-banner">FIXTURE 모드 — 로컬 샘플 데이터</div>}
+        {process.env.NEXT_PUBLIC_DASHBOARD_FIXTURES === "1" && <div className="fixture-banner">FIXTURE 모드 — 로컬 샘플 데이터</div>}
         <header className="topbar">
           <div className="topbar-inner">
             <Link href="/" className="brand">Polylab</Link>

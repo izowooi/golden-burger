@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import sys
 import time
 from pathlib import Path
@@ -265,8 +266,19 @@ def build_objects(paths, now: int | None = None, use_jenkins: bool = True, varia
     return objs
 
 
+def _finite(obj):
+    """NaN/Infinity are not JSON (the browser's JSON.parse rejects the whole file); unknown = null per contract."""
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _finite(x) for k, x in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_finite(x) for x in obj]
+    return obj
+
+
 def _dump(obj) -> bytes:
-    return json.dumps(obj, ensure_ascii=False, default=str, separators=(",", ":")).encode()
+    return json.dumps(_finite(obj), ensure_ascii=False, default=str, separators=(",", ":"), allow_nan=False).encode()
 
 
 def report_files(reports_dir: Path = REPORTS_DIR) -> list[Path]:

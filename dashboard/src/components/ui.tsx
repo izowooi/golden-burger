@@ -45,3 +45,7 @@ export function Generated({ at, extra }: { at: string | null | undefined; extra?
     </p>
   );
 }
+
+export function Loading() {
+  return <div className="empty">불러오는 중…</div>;
+}

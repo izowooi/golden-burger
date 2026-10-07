@@ -64,7 +64,7 @@ src/polylab/
   cli.py                  # `polylab <command>`
 strategies/*.yaml         # 전략 변형 레지스트리 (파라미터·경계·단위·계좌 alias·모드) — autopilot 이 수정
 jenkins/                  # 잡 정의(config.xml 템플릿)와 sync 스크립트
-dashboard/                # Next.js on Cloudflare Workers (poly.zowoo.uk)
+dashboard/                # Next.js static export + Worker data proxy /data/* (poly.zowoo.uk; deploy: npm run deploy)
 docs/                     # ARCHITECTURE, research(논문용), strategies(명세)
 reports/                  # autopilot 이 커밋하는 daily/weekly/monthly 회고 (공개)
 tests/
