@@ -1,6 +1,6 @@
 # polylab 확인·결정 목록 (attention inbox)
 
-갱신 2026-10-09 03:31 KST · 열린 항목 42건 (긴급 0 · 경고 3 · 결정 필요 9 · 참고 30)
+갱신 2026-10-09 08:01 KST · 열린 항목 41건 (긴급 0 · 경고 1 · 결정 필요 10 · 참고 30)
 
 매 회고(일일 3회·주간·월간)가 자동으로 갱신한다. **자동 규칙** 항목은 조건이 풀리면 스스로 '최근 해결'로 옮겨지고, **AI 판단** 항목은 7일 동안 다시 나오지 않으면 만료된다. 근거 경로는 이 저장소 기준이며, `metrics/…` 같은 경로는 AI context pack(공개 사본 `reports/context/latest/`)을 가리킨다.
 
@@ -10,45 +10,38 @@
 
 ### [경고] 수동 베팅 누적 실현 -3,666.45 USDC: bankroll의 -36.7% (수동 AI 베팅 (red, 메인))
 
-- 위험 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-09 03:31 KST · id `manual_drawdown:red`
-- 근거: `reports/daily/2026-10-09-dawn.md`
+- 위험 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-09 08:01 KST · id `manual_drawdown:red`
+- 근거: `reports/daily/2026-10-09-morning.md`
 
 계좌 수동 AI 베팅 (red, 메인) 실현손익이 처음 기록된 bankroll 10,000.00 USDC의 −10% 아래로 내려갔다. 베팅 금액·선택 기준 점검 권장.
 
-### [경고] watermelon-cat 단위 모드 변경: 5→5 USDC, 모드 live→paper
-
-- 시스템 변경 · 자동 규칙 · 최초 10-06 08:00 · 갱신 10-07 03:30 KST · id `stake:watermelon-cat:1791241204`
-- 근거: `strategies/watermelon-cat.yaml`
-
-10-06 08:00 KST 자동 적용. 사유: paper: 45 trades at floor with cumulative loss. 증액은 2026-10-06 연구자 결정(stake:freeze-5)으로 동결(모든 변형 5 USDC), 감액·paper 전환은 손실이나 표본 규칙으로 자동 적용된다.
-
-### [경고] watermelon-dog 단위 모드 변경: 5→5 USDC, 모드 live→paper
-
-- 시스템 변경 · 자동 규칙 · 최초 10-06 08:00 · 갱신 10-07 03:30 KST · id `stake:watermelon-dog:1791241204`
-- 근거: `strategies/watermelon-dog.yaml`
-
-10-06 08:00 KST 자동 적용. 사유: paper: 45 trades at floor with cumulative loss. 증액은 2026-10-06 연구자 결정(stake:freeze-5)으로 동결(모든 변형 5 USDC), 감액·paper 전환은 손실이나 표본 규칙으로 자동 적용된다.
-
 ### [결정 필요] late-leader-paper 실거래용 계좌가 필요합니다
 
-- 결정 · 자동 규칙 · 최초 10-07 03:30 · 갱신 10-09 03:31 KST · id `account:late-leader-paper`
-- 근거: `reports/daily/2026-10-09-dawn.md`
+- 결정 · 자동 규칙 · 최초 10-07 03:30 · 갱신 10-09 08:01 KST · id `account:late-leader-paper`
+- 근거: `reports/daily/2026-10-09-morning.md`
 
 막판 선두 수렴 가설(late_leader)은 계좌 없이 paper 로만 돈다. 2026-10-06 확인: 자금이 있는 여유 계좌가 없다(bear·fox·wolf·eagle·orange 현금 0, yellow 현금 0, red 는 수동 트랙). 실거래를 원하면 계좌 하나에 USDC 를 넣고 별칭을 알려 주세요(다음 작업에서 yaml 에 연결). 그 뒤에도 live 는 게이트를 통과한 종목만 5 USDC 다: 지금 후보는 NFL 하나, NHL 은 현재 재생 규칙(n ≥ 40)에 닿지 않아 창 결정이 필요하다. 근거 docs/research/hypothesis-late-leader-convergence.md
 
-### [결정 필요] cherry-tiger 3일 이상 진입 0건 (대상 경기 18개 있었음)
+### [결정 필요] cherry-tiger 3일 이상 진입 0건 (대상 경기 11개 있었음)
 
-- 결정 · 자동 규칙 · 최초 10-07 08:00 · 갱신 10-09 03:31 KST · id `dead_variant:cherry-tiger`
+- 결정 · 자동 규칙 · 최초 10-07 08:00 · 갱신 10-09 08:01 KST · id `dead_variant:cherry-tiger`
 - 근거: `strategies/cherry-tiger.yaml`
 
-마지막 진입 10-04 03:49 KST. 같은 기간 대상 종목(soccer) 경기는 18개였다. 진입 조건이 지나치게 엄격하거나 버그일 수 있다. AI 회고가 백테스트 근거로 조건을 다시 맞추거나(retro 가 직접 재생해 검증), 폐기(retire) 여부를 판단해야 한다.
+마지막 진입 10-04 03:49 KST. 같은 기간 대상 종목(soccer) 경기는 11개였다. 진입 조건이 지나치게 엄격하거나 버그일 수 있다. AI 회고가 백테스트 근거로 조건을 다시 맞추거나(retro 가 직접 재생해 검증), 폐기(retire) 여부를 판단해야 한다.
 
-### [결정 필요] llm-nil-consensus 3일 이상 진입 0건 (대상 경기 18개 있었음)
+### [결정 필요] llm-nil-consensus 3일 이상 진입 0건 (대상 경기 11개 있었음)
 
-- 결정 · 자동 규칙 · 최초 10-07 03:30 · 갱신 10-09 03:31 KST · id `dead_variant:llm-nil-consensus`
+- 결정 · 자동 규칙 · 최초 10-07 03:30 · 갱신 10-09 08:01 KST · id `dead_variant:llm-nil-consensus`
 - 근거: `strategies/llm-nil-consensus.yaml`
 
-진입 기록 없음. 같은 기간 대상 종목(soccer) 경기는 18개였다. 진입 조건이 지나치게 엄격하거나 버그일 수 있다. AI 회고가 백테스트 근거로 조건을 다시 맞추거나(retro 가 직접 재생해 검증), 폐기(retire) 여부를 판단해야 한다.
+진입 기록 없음. 같은 기간 대상 종목(soccer) 경기는 11개였다. 진입 조건이 지나치게 엄격하거나 버그일 수 있다. AI 회고가 백테스트 근거로 조건을 다시 맞추거나(retro 가 직접 재생해 검증), 폐기(retire) 여부를 판단해야 한다.
+
+### [결정 필요] plum NBA paper 누적 손실 심화 — king -8.07%(n=13), queen -11.13%(n=13); 오늘만 king -14.45%, queen -11.55%
+
+- 결정 · AI 판단 · 최초 10-09 08:01 · 갱신 10-09 08:01 KST · id `ai:plum-nba-paper-loss-deepening`
+- 근거: `metrics/plum-king.json, metrics/plum-queen.json`
+
+plum:nfl-only 결정(decisions.md 2026-10-06)에서 NBA·NHL·MLB는 양수 조건이 없어 paper로만 표본을 쌓는 중. 오늘 2026-10-08 NBA에서 king 8건 ROI -14.45%(stop_loss 5건: Warriors/Trail Blazers, Magic/Grizzlies, Bucks/Thunder, Suns/Bulls, Timberwolves/Pacers), queen 9건 ROI -11.55%(stop_loss 4건). 누적 king NBA 13건 -8.07%, queen NBA 13건 -11.13%로 손실이 계속 심화되고 있다. plum-king/queen 파라미터 쿨다운은 2026-10-09 12:12에 만료된다. 쿨다운 만료 후 NBA(및 NHL·MLB) sport_override를 off로 전환할지, 아니면 그리드 탐색이 충분하지 않다고 보고 계속 paper 표본을 쌓을지 결정이 필요하다.
 
 ### [결정 필요] paper 변형 watermelon-cat 표본 36건 도달: live 전환 결정 필요
 
@@ -94,24 +87,24 @@ late-leader-paper NFL(T=170분, Y=0.88, Z=0.98)이 엔진 재생에서 통과 �
 
 ### [참고] 데이터 품질 이벤트 live_gap 32건 (24시간)
 
-- 데이터 품질 · 자동 규칙 · 최초 10-01 09:00 · 갱신 10-09 03:31 KST · id `quality:live_gap`
-- 근거: `reports/daily/2026-10-09-dawn.md`
+- 데이터 품질 · 자동 규칙 · 최초 10-01 09:00 · 갱신 10-09 08:01 KST · id `quality:live_gap`
+- 근거: `reports/daily/2026-10-09-morning.md`
 
 라이브 경기 중 1분 가격 bar 공백. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.
 
-### [참고] 데이터 품질 이벤트 missing_book 164건 (24시간)
+### [참고] 데이터 품질 이벤트 missing_book 210건 (24시간)
 
-- 데이터 품질 · 자동 규칙 · 최초 10-08 19:31 · 갱신 10-09 03:31 KST · id `quality:missing_book`
-- 근거: `reports/daily/2026-10-09-dawn.md`
+- 데이터 품질 · 자동 규칙 · 최초 10-08 19:31 · 갱신 10-09 08:01 KST · id `quality:missing_book`
+- 근거: `reports/daily/2026-10-09-morning.md`
 
 missing_book. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.
 
-### [참고] paper 변형 cherry-blue 증거 수집 중 (11/20건)
+### [참고] paper 변형 cherry-blue 증거 수집 중 (13/20건)
 
-- 시스템 변경 · 자동 규칙 · 최초 10-05 19:31 · 갱신 10-09 03:31 KST · id `paper:cherry-blue`
+- 시스템 변경 · 자동 규칙 · 최초 10-05 19:31 · 갱신 10-09 08:01 KST · id `paper:cherry-blue`
 - 근거: `strategies/cherry-blue.yaml`
 
-가설: 전 카테고리(스포츠·정치·경제·크립토·시사…) 거래량 1만+ 마켓에서 종료 48–72시간 전 앞선 결과가 0.90–0.95 이면 정산까지 남은 불확실성 해소로 0.95 이상으로 수렴한다(연구자 초기 cherry 개념 "0.9 근처 매수 → 0.95 근처 매도"). A arm: 연구자 원안 그대로.. paper 정산 11건, ROI 0.9%(paper 원장, 실손익 아님). live 전환: 종목별 변형은 결정론 승격 게이트가 자동으로, 또는 AI 회고가 제안하면 retro 가 직접 돌린 재생(종목별 최소 건수·전체와 두 반기 ROI ≥ 0)과 paper 표본(유의하게 음수가 아님)이 통과할 때만 (변형, 종목)을 5 USDC 로 전환한다(2026-10-06 promotion:ai-direct). 연구자가 yaml 로 직접 바꿀 수도 있다.
+가설: 전 카테고리(스포츠·정치·경제·크립토·시사…) 거래량 1만+ 마켓에서 종료 48–72시간 전 앞선 결과가 0.90–0.95 이면 정산까지 남은 불확실성 해소로 0.95 이상으로 수렴한다(연구자 초기 cherry 개념 "0.9 근처 매수 → 0.95 근처 매도"). A arm: 연구자 원안 그대로.. paper 정산 13건, ROI 1.1%(paper 원장, 실손익 아님). live 전환: 종목별 변형은 결정론 승격 게이트가 자동으로, 또는 AI 회고가 제안하면 retro 가 직접 돌린 재생(종목별 최소 건수·전체와 두 반기 ROI ≥ 0)과 paper 표본(유의하게 음수가 아님)이 통과할 때만 (변형, 종목)을 5 USDC 로 전환한다(2026-10-06 promotion:ai-direct). 연구자가 yaml 로 직접 바꿀 수도 있다.
 
 ### [참고] NBA score jump 4쿼터(36–48분) n=37→234로 확대 — 단조 증가 패턴 안정화, late-leader 근거 강화
 
@@ -305,10 +298,12 @@ plum-king이 Republic of Ireland vs Austria에서 HOME:NO(Ireland가 이기지 �
 ## 최근 해결
 
 <details>
-<summary>최근 14일 해결 37건</summary>
+<summary>최근 14일 해결 39건</summary>
 
-- **paper 변형 plum-king 표본 53건 도달: live 전환 결정 필요** — 사용자 결정 (2026-10-06): ROI −3.0% 로는 live 하지 않는다. 더 개선해 ROI 가 양수가 되는 조건을 찾는다. (10-09 03:31 KST)
-- **paper 변형 plum-queen 표본 54건 도달: live 전환 결정 필요** — 사용자 결정 (2026-10-06): 마찬가지로 ROI 가 양수가 되는 조건을 찾는다. (10-09 03:31 KST)
+- **paper 변형 plum-king 표본 53건 도달: live 전환 결정 필요** — 사용자 결정 (2026-10-06): ROI −3.0% 로는 live 하지 않는다. 더 개선해 ROI 가 양수가 되는 조건을 찾는다. (10-09 08:01 KST)
+- **paper 변형 plum-queen 표본 54건 도달: live 전환 결정 필요** — 사용자 결정 (2026-10-06): 마찬가지로 ROI 가 양수가 되는 조건을 찾는다. (10-09 08:01 KST)
+- **watermelon-cat 단위 모드 변경: 5→5 USDC, 모드 live→paper** — 조건 해소 (자동) (10-09 08:01 KST)
+- **watermelon-dog 단위 모드 변경: 5→5 USDC, 모드 live→paper** — 조건 해소 (자동) (10-09 08:01 KST)
 - **일일 회고 제안 1건 거부됨 (validator)** — 조건 해소 (자동) (10-09 03:31 KST)
 - **MLB 득점 jump가 이닝 후반으로 갈수록 커지는 패턴 — 가설 2번 방향과 일치** — 자동 만료 (AI 항목, 7일 동안 재확인 없음) (10-09 03:31 KST)
 - **llm-nil-draw(paper)와 watermelon-dog(live)이 동일 경기 반대 방향 베팅 — 첫 날 LLM 예측 실패 예상** — 자동 만료 (AI 항목, 7일 동안 재확인 없음) (10-09 03:31 KST)

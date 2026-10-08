@@ -62,7 +62,7 @@ params:
   take_profit_cap: 0.99
   sport_overrides:
     nfl:
-      prob_min: 0.97
+      prob_min: 0.95
       stop_price: 0.65
       take_profit_delta: null
       min_wall_minute: 180

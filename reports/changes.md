@@ -2,6 +2,13 @@
 
 최신이 위. autopilot(validator 통과분)과 결정론 ladder가 기록한다.
 
+## 2026-10-09 08:01 KST · 일일 2026-10-09-morning · engine claude
+
+- `watermelon-cat` params: [nfl] sport_overrides.nfl.prob_min 0.97→0.95 [backtest: n 244→244, H1 -0.38% vs -0.40% / H2 +0.16% vs -0.24%, MDD 5.25→4.93] (ai:claude) — NFL 정규시즌 진행 중임에도 backtest_retune_eligible 조건(3일 이상 진입 0건)에 해당. prob_min=0.97 + min_wall_minute=180 조합이 지나치게 엄격해 진입 기회가 없다. bounds 내 2스텝(step=0.01, max_step_mult=2.0 → 최대 0.02 이동) 완화. retro가 NFL 365일 재생(n≥20 기준)으로 검증.
+  - 백테스트 근거(retro 가 직접 재생, paper replay·실손익 아님): 2025-10-08~2026-10-08, split 2025-12-16
+  - current: n 244 ROI -0.32% MDD 5.25 · H1 n 122 ROI -0.40% · H2 n 122 ROI -0.24%
+  - proposed: n 244 ROI -0.11% MDD 4.93 · H1 n 122 ROI -0.38% · H2 n 122 ROI +0.16%
+
 ## 2026-10-06 08:00 KST · 일일 2026-10-06-morning · engine claude
 
 - `watermelon-cat` mode: [soccer] mode live→paper (ladder) — ladder: 45 trades at floor with cumulative loss
