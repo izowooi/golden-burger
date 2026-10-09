@@ -38,7 +38,7 @@ def eng(key, p00, kickoff=NOW + 5 * 3600):
 
 def test_pick_rule_sides_overlap_pool_and_order():
     games = {k: g(k) for k in "abcdefgh"}
-    games["x"] = g("x", league="unl")                     # outside the six-league pool
+    games["x"] = g("x", league="fif")                     # outside the study pool (friendlies)
     games["y"] = g("y", under=False)                      # no Under token: cannot be bet both ways -> not pooled
     claude = [eng(k, p) for k, p in zip("abcdefgh", (.03, .04, .05, .06, .10, .11, .12, .13))] + \
         [eng("x", .01), eng("y", .02)]
@@ -100,7 +100,7 @@ def test_run_freezes_picks_and_later_batch_wins(tmp_path):
 
 def test_selection_puts_study_leagues_first(tmp_path):
     env = Env(tmp_path / "rt")
-    env.game("u1", "soccer", NOW + 3 * 3600, "A", "B", status="scheduled", league="ucl")
+    env.game("u1", "soccer", NOW + 3 * 3600, "A", "B", status="scheduled", league="fifwc")
     env.market("mu", "u1", "moneyline", [("hu", "Yes", "home"), ("hun", "No", "no")], volume=900000)
     env.game("m1", "soccer", NOW + 4 * 3600, "C", "D", status="scheduled", league="mls")
     env.market("mm", "m1", "moneyline", [("hm", "Yes", "home"), ("hmn", "No", "no")], volume=10)
@@ -147,8 +147,24 @@ def test_entry_on_picked_side_hold_to_resolution(tmp_path, side, token, label):
     assert i.token_id == token and i.outcome_label == label and i.features["overround"] == pytest.approx(0.02)
     assert i.exit_rules["hold_to_resolution"] and i.exit_rules["side"] == side
     assert i.exit_rules["take_profit_price"] is None and i.exit_rules["stop_loss_price"] is None
-    lo, hi = (0.8, 0.985) if side == "over" else (0.015, 0.2)
+    lo, hi = (0.8, 0.99) if side == "over" else (0.01, 0.2)
     assert (i.min_price, i.max_price) == (lo, hi)
+
+
+def test_tight_books_first_and_priced_inside_wide_books_wait_at_bid(tmp_path):
+    env, now = market_world(tmp_path)                                     # g1: 0.96 + 0.06 -> overround .02
+    env.game("g2", "soccer", KICK + 600, "Spurs", "Fulham", status="scheduled", league="epl")
+    env.market("ou2", "g2", "total", [("ov2", "Over", "over"), ("un2", "Under", "under")], volume=15000)
+    env.core.execute("UPDATE markets SET line=0.5 WHERE condition_id='ou2'")
+    env.core.commit()
+    env.book("ov2", now - 60, [(0.95, 500)], [(0.953, 500)])
+    env.book("un2", now - 60, [(0.047, 500)], [(0.05, 500)])              # 0.953 + 0.05 -> overround .003
+    p2 = {**pick(gk="g2"), "condition_id": "ou2", "over_token": "ov2", "under_token": "un2", "pick_rank": 2}
+    intents = strat({"g1": pick(), "g2": p2}).entry_signals(env.view(now), now, Ledger())
+    assert [i.game_key for i in intents] == ["g2", "g1"]                  # lower overround first, despite pick rank
+    tight, wide = intents
+    assert tight.features["overround_tier"] == "tight" and tight.features["maker_price_rule"] == "improve"
+    assert wide.features["overround_tier"] == "wide" and wide.features["maker_price_rule"] == "join"
 
 
 def test_overround_gate_and_bands(tmp_path):
@@ -197,7 +213,7 @@ def test_paper_tick_end_to_end_maker(tmp_path, monkeypatch):
     from polylab.engine.tick import run as tick
 
     monkeypatch.delenv("POLYLAB_KILL", raising=False)
-    env, now = market_world(tmp_path, over=(0.94, 0.96))
+    env, now = market_world(tmp_path, over=(0.94, 0.96), under=(0.04, 0.05))      # overround .01 -> tight
     monkeypatch.setattr(AiOu05, "picks_source", staticmethod(lambda n: {"g1": pick()}))
     monkeypatch.setattr(AiOu05, "owner_conditions", staticmethod(lambda a, n, age: set()))
     reg = tmp_path / "reg"
@@ -282,8 +298,51 @@ def test_owner_lock_rejects_every_change_and_ladder_skips_it():
     assert retro.ladder_changes(report)["changes"] == []
 
 
-def test_owner_questions_are_open_from_launch_day():
-    from polylab.reports import reminders
-    due = {r["id"]: r for r in reminders.due({"variants": []}, 1_791_590_400)}      # 2026-10-10 00:00 UTC
-    assert {"question:ai-ou05-chatgpt-web", "question:ai-ou05-leagues"} <= set(due)
-    assert "POLYLAB_FORECAST_CODEX_WEB" in due["question:ai-ou05-chatgpt-web"]["detail"]
+def test_wide_book_rests_at_best_bid_in_paper_tick(tmp_path, monkeypatch):
+    from polylab.engine.tick import run as tick
+
+    monkeypatch.delenv("POLYLAB_KILL", raising=False)
+    env, now = market_world(tmp_path, over=(0.93, 0.96), under=(0.04, 0.07))       # overround .03 -> wide
+    monkeypatch.setattr(AiOu05, "picks_source", staticmethod(lambda n: {"g1": pick()}))
+    monkeypatch.setattr(AiOu05, "owner_conditions", staticmethod(lambda a, n, age: set()))
+    reg = tmp_path / "reg"
+    reg.mkdir()
+    real = yaml.safe_load(open("strategies/ai-ou05-red.yaml"))
+    real.update(mode="paper", account=None)
+    (reg / "ai-ou05-red.yaml").write_text(yaml.safe_dump(real, allow_unicode=True))
+    tick(env.paths, registry_dir=reg, poll=False, now=now)
+    [o] = [dict(r) for r in db.strategy(env.paths, "ai-ou05-red").execute("SELECT * FROM orders")]
+    assert o["limit_price"] == pytest.approx(0.93)                       # join the bid, not 0.94
+
+
+def test_codex_web_runs_inside_secret_denying_sandbox(tmp_path):
+    e = lf.ForecastCodexEngine(binary="codex", web=True)
+    cmd = e.command(tmp_path)
+    assert cmd[0] == "/usr/bin/sandbox-exec" and cmd[1] == "-p"
+    profile = cmd[2]
+    assert '.polylab")' in profile and '.ssh")' in profile and "deny file-read*" in profile
+    assert "deny file-write* (require-not" in profile and str(tmp_path.resolve()) in profile
+    assert 'web_search="live"' in cmd and "danger-full-access" in cmd and "workspace-write" not in cmd
+    assert cmd[cmd.index("-m") + 1] == "gpt-6.1-sol" and 'model_reasoning_effort="high"' in cmd and cmd[-1] == "-"
+    missing = lf.ForecastCodexEngine(binary="codex", web=True, sandbox=str(tmp_path / "nope"))
+    assert missing.available()[0] is False or "codex" in missing.available()[1]
+    off = lf.ForecastCodexEngine(binary="codex", web=False).command(tmp_path)
+    assert off[0] == "codex" and 'web_search="disabled"' in off and "workspace-write" in off
+
+
+def test_claude_forecast_engine_pins_opus_high():
+    cmd = lf.ForecastClaudeEngine().command()
+    assert cmd[cmd.index("--model") + 1] == "claude-opus-5-5" and cmd[cmd.index("--effort") + 1] == "high"
+
+
+def test_context_hides_market_prices_and_research_items_are_kept(tmp_path):
+    g1 = g("a")
+    g1.tokens = {"over": "oa", "under": "ua", "home": "ha"}
+    lf.build_context(tmp_path, [g1], {"oa": {"bid": .9, "ask": .95, "mid": .925}}, {}, NOW)
+    text = (tmp_path / "games.json").read_text()
+    assert "0.95" not in text and "polymarket" not in text and '"a"' in text
+    rows, _, problems = lf.parse_forecasts({"games": [{"game_key": "a", "p_not_0_0": 0.93, "research": {
+        "form": "f", "strength_gap": "s", "managers": "m", "h2h": "h", "absences": "x", "context": "c"},
+        "factors": ["k"]}, {"game_key": "b", "p_not_0_0": 0.9}]}, {"a", "b"})
+    assert rows[0]["factors"][:2] == ["form: f", "strength_gap: s"] and rows[0]["factors"][-1] == "k"
+    assert any("b: research 0/6" in p for p in problems)

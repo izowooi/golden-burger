@@ -102,7 +102,7 @@ def test_selection_and_run_stores_validated_forecasts(tmp_path):
     assert dirs == ["claude", "codex"]                                                 # independent cwd per engine
     games = json.loads(next(base.glob("*/claude/games.json")).read_text())["games"]
     assert [g["game_key"] for g in games] == ["g1", "g2"]            # Over-market game first; fif/far/near excluded
-    assert games[1]["polymarket"]["over_0_5_goals"].startswith("no Total 0.5")
+    assert all("polymarket" not in g for g in games)                 # protocol v2: the AI never sees prices
     conn = sqlite3.connect(lf.db_path(env.paths))
     conn.row_factory = sqlite3.Row
     rows = {r["game_key"]: dict(r) for r in conn.execute("SELECT * FROM forecasts WHERE run_id LIKE '%-claude'")}
@@ -215,15 +215,14 @@ def test_forecast_engine_commands_enable_web_but_no_shell(tmp_path):
     tools = cmd[cmd.index("--tools") + 1].split(",")
     assert "Grep" not in tools and "Glob" not in tools and "Grep" in deny.split(",")
     ccmd = lf.ForecastCodexEngine(binary="codex", web=True).command(tmp_path)
-    assert 'web_search="live"' in ccmd and 'web_search="disabled"' not in ccmd
-    assert "sandbox_workspace_write.network_access=false" in ccmd and "workspace-write" in ccmd
+    assert 'web_search="live"' in ccmd and 'web_search="disabled"' not in ccmd and ccmd[0].endswith("sandbox-exec")
 
 
-def test_codex_web_search_is_opt_in(tmp_path, monkeypatch):
+def test_codex_web_search_is_on_by_default_and_can_be_turned_off(tmp_path, monkeypatch):
     monkeypatch.delenv(lf.CODEX_WEB_ENV, raising=False)
+    assert 'web_search="live"' in lf.ForecastCodexEngine(binary="codex").command(tmp_path)    # 2026-10-10 owner
+    monkeypatch.setenv(lf.CODEX_WEB_ENV, "0")
     assert 'web_search="disabled"' in lf.ForecastCodexEngine(binary="codex").command(tmp_path)
-    monkeypatch.setenv(lf.CODEX_WEB_ENV, "1")
-    assert 'web_search="live"' in lf.ForecastCodexEngine(binary="codex").command(tmp_path)
 
 
 def test_crash_after_ai_is_recorded_as_failed_run(tmp_path, monkeypatch):
@@ -290,23 +289,22 @@ def test_calibration_and_scores_helpers():
     assert llm_eval.evaluate(SimpleNamespace(research_dir="/nonexistent", core_db="/nonexistent"))["available"] is False
 
 
-def test_slack_text_consensus_top3_and_status(tmp_path):
-    pick = {"consensus_rank": 1, "home_team": "Arsenal", "away_team": "Chelsea", "league": "epl", "kickoff": NOW,
-            "p00_claude": 0.05, "p00_codex": 0.07, "p00_consensus": 0.06, "market_ask_at_forecast": 0.92,
-            "market_implied_p00": 0.08}
-    res = {"ok": True, "over_markets": 1, "engines": {"claude": {"ok": True, "n": 2}, "codex": {"ok": True, "n": 2}},
-           "consensus": {"status": "ok", "picks": [pick, {**pick, "consensus_rank": 2, "market_ask_at_forecast": None,
-                                                          "market_implied_p00": None}]}}
-    text = lf.slack_text(res, status="paper", now=NOW)
-    assert "Claude 2경기 · ChatGPT 2경기" in text and "P(0:0) Claude 5.0% · ChatGPT 7.0% · 합의 6.0%" in text
-    assert "시장 내재 8.0% (1−Over ask 0.920)" in text and "Over 0.5 시장가 없음" in text
-    assert "llm-nil-consensus: paper(가상)" in text and text.endswith(lf.DISCLAIMER)
-    assert "실거래(live)" in lf.slack_text(res, status="live", now=NOW)
+def test_slack_text_models_and_ou05_picks(tmp_path):
+    pick = {"pick_rank": 1, "home_team": "Arsenal", "away_team": "Chelsea", "league": "epl", "kickoff": NOW,
+            "p00_claude": 0.05, "p00_codex": 0.07, "overround": 0.004}
+    res = {"ok": True, "over_markets": 1,
+           "engines": {"claude": {"ok": True, "n": 2, "model": "claude-opus-5-5@high"},
+                       "codex": {"ok": True, "n": 2, "model": "gpt-6.1-sol@high"}},
+           "consensus": {"status": "ok", "picks": [],
+                         "ou05": {"status": "ok", "n_pool": 2, "over": [pick], "under": []}}}
+    text = lf.slack_text(res, now=NOW)
+    assert "Claude(claude-opus-5-5@high) 2경기 · ChatGPT(gpt-6.1-sol@high) 2경기" in text
+    assert "Over(0:0 아님) 1. Arsenal vs Chelsea" in text and "호가 합 1.004" in text and text.endswith(lf.DISCLAIMER)
     empty = {**res, "engines": {"claude": {"ok": True, "n": 2}, "codex": {"ok": False}},
-             "consensus": {"status": "empty", "reason": "ChatGPT 실패: boom", "picks": []}}
-    t2 = lf.slack_text(empty, status="paper", now=NOW)
+             "consensus": {"status": "empty", "reason": "ChatGPT 실패: boom", "picks": [],
+                           "ou05": {"status": "empty", "reason": "ChatGPT 실패"}}}
+    t2 = lf.slack_text(empty, now=NOW)
     assert "ChatGPT 실패" in t2 and "합의 없음" in t2
-    # strategies/llm-nil-consensus.yaml: the mode is tunable (owner / AI retire), only its shape is pinned
     assert lf.consensus_variant_status() in ("paper", "live", "off")
     assert lf.consensus_variant_status(tmp_path) == "absent"
 

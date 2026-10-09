@@ -1,17 +1,19 @@
 id: ai-ou05-red
 family: ai_ou05
-hypothesis: "Claude 와 ChatGPT 가 매일(10:00 KST) 향후 30시간 유럽 5대 리그(EPL·라리가·분데스리가·세리에A·리그1)+MLS 경기의 0:0 확률을 각자 매기고, 두 AI 모두 '0:0 이 가장 안 날' 상위 8위 안에 넣은 경기는 Total 0.5 Over, '0:0 이 가장 날' 상위 8위 안에 넣은 경기는 Under 를 산다. 시장이 매긴 Over 95~98%(Under 2~5%)가 과소(과대)평가라면, 수수료 없는 지정가로 산 픽들의 정산 승률이 평균 매수가(내재 확률)보다 높다. 손절·익절 없이 정산까지 보유. 설계 docs/research/ai-ou05-study.md."
+hypothesis: "Claude(Opus 5.5)와 ChatGPT(GPT-6.1-Sol)가 매일(10:00 KST) 시장 가격을 보지 않고 웹 조사만으로 향후 30시간 유럽 5대 리그(EPL·라리가·분데스리가·세리에A·리그1)·MLS·챔피언스리그·유로파·네이션스리그 경기의 0:0 확률을 각자 매기고, 두 AI 모두 '0:0 이 가장 안 날' 상위 8위 안에 넣은 경기는 Total 0.5 Over, '0:0 이 가장 날' 상위 8위 안에 넣은 경기는 Under 를 산다. 시장이 매긴 Over 95~98%(Under 2~5%)가 과소(과대)평가라면, 수수료 없는 지정가로 산 픽들의 정산 승률이 평균 매수가(내재 확률)보다 높다. 손절·익절 없이 정산까지 보유. 설계 docs/research/ai-ou05-study.md."
 account: red
 mode: live
 sports: [soccer]
 stake_usdc: 5
 params:
   sides: [over, under]
-  leagues: [epl, lal, bun, sea, fl1, mls]
+  leagues: [epl, lal, bun, sea, fl1, mls, ucl, uel, unl]
   max_overround: 0.04
+  tight_overround: 0.01
+  wide_price_rule: join
   over_price_min: 0.8
-  over_price_max: 0.985
-  under_price_min: 0.015
+  over_price_max: 0.99
+  under_price_min: 0.01
   under_price_max: 0.2
   book_max_age_s: 900
   owner_holdings_max_age_s: 7200
@@ -22,4 +24,4 @@ params:
   maker_entry_cutoff_minutes: 5
 bounds: {}
 limits: {max_positions: 60, max_open_usdc: 320, daily_loss_stop_usdc: 10000, max_new_per_cycle: 16, max_sells_per_cycle: 0}
-notes: "2026-10-10 연구자 결정 `ai-ou05:red-live`: red(연구자가 UI 로 O/U 0.5 를 수동 베팅하던 계좌)로 실거래, 거래 단위 5 USDC 고정, 손절·익절 없음(정산까지 보유), 수수료가 생기지 않도록 지정가(maker, post-only)로만 매수하고 즉시 체결되지 않아도 기다린다(킥오프 5분 전 취소). 호가 합(Over 매도호가+Under 매도호가)이 1.04 를 넘으면 진입하지 않는다(연구자: 1.07 은 무시, 1.01~1.03 참여, 1.05 이상 진입 안 함). 픽은 같은 날 예측 실행이 research/llm_forecasts.db 의 ou05_picks 에 고정 기록한다(사전 등록 규칙 OU05_RULE). 연구자 소유 마켓(수동 보유 조건)에는 들어가지 않는다. 이 변형은 연구자 고정이다: autopilot·ladder 는 파라미터·단위·모드를 바꾸지 않는다(validator OWNER_LOCKED). 비상 정지는 KILL 스위치."
+notes: "2026-10-10 연구자 결정 `ai-ou05:red-live`: red(연구자가 UI 로 O/U 0.5 를 수동 베팅하던 계좌)로 실거래, 거래 단위 5 USDC 고정, 손절·익절 없음(정산까지 보유), 수수료가 생기지 않도록 지정가(maker, post-only)로만 매수하고 즉시 체결되지 않아도 기다린다(킥오프 5분 전 취소). 호가 합(Over 매도호가+Under 매도호가)이 1.04 를 넘으면 진입하지 않는다(연구자: 1.07 은 무시, 1.01~1.03 참여, 1.05 이상 진입 안 함). 픽은 같은 날 예측 실행이 research/llm_forecasts.db 의 ou05_picks 에 고정 기록한다(사전 등록 규칙 OU05_RULE). 연구자 소유 마켓(수동 보유 조건)에는 들어가지 않는다. 이 변형은 연구자 고정이다: autopilot·ladder 는 파라미터·단위·모드를 바꾸지 않는다(validator OWNER_LOCKED). 비상 정지는 KILL 스위치. 2026-10-10 추가 결정: 호가 합은 1.04 이하를 기계적으로 똑같이 다루지 않고 1.0 에 가까운 경기를 우선한다 — 같은 주기의 진입은 호가 합이 낮은 순이고, 호가 합 1.01 이하는 스프레드 안 한 틱(빨리 체결), 1.01 초과는 매수호가에 맞춰 기다린다(더 싸게). 가격 범위 Over 0.80–0.99, Under 0.01–0.20. 대상에 UCL·UEL·네이션스리그 추가. 두 AI 는 Claude Opus 5.5(effort high)·GPT-6.1-Sol(reasoning high)로 고정, 둘 다 웹 검색, 시장 가격은 AI 에게 주지 않는다(프로토콜 v2)."

@@ -14,17 +14,6 @@ import datetime as dt
 DATED = (
     {"id": "reminder:storage-7d-steady-state", "start": "2026-10-13", "slack_days": 3, "kind": "storage",
      "title": "저장 증가 7일 정상 상태 재확인 (예산 월 50GB)"},
-    # 2026-10-10 ai-ou05-red launch: two owner questions left open on purpose (docs/research/ai-ou05-study.md §7)
-    {"id": "question:ai-ou05-chatgpt-web", "start": "2026-10-10", "slack_days": 0, "kind": "text",
-     "title": "ChatGPT(codex) 예측에 웹 검색을 켤까요? (지금은 꺼짐)",
-     "detail": "ai-ou05-red 의 ChatGPT 쪽 예측은 웹 검색 없이 일반 지식으로만 0:0 확률을 매긴다(부상·라인업 뉴스 반영 못 함). "
-               "codex 샌드박스는 홈 폴더(계좌 키 포함)를 읽을 수 있어서, 웹 페이지의 악성 지시가 검색어로 키를 빼낼 위험 때문에 "
-               "꺼 두었다(Claude 쪽은 홈 폴더 읽기가 막혀 있어 웹 검색 사용). 켜려면 위험을 감수한다고 decisions.md 에 남겨 주세요 "
-               "(켜는 방법: Jenkins 환경 POLYLAB_FORECAST_CODEX_WEB=1)."},
-    {"id": "question:ai-ou05-leagues", "start": "2026-10-10", "slack_days": 0, "kind": "text",
-     "title": "ai-ou05 대상에 챔피언스리그·유로파·네이션스리그도 넣을까요?",
-     "detail": "지금 대상은 말씀하신 유럽 5대 리그+MLS 뿐이다. 수동으로 검증하신 네이션스리그와 UCL·UEL 은 AI 예측(llm-nil 연구)에는 "
-               "들어가지만 ai-ou05-red 는 사지 않는다. 넣으려면 decisions.md 에 리그를 적어 주세요(OU05_LEAGUES 와 yaml leagues 를 같이 바꿈)."},
 )
 ACCOUNT_REQUESTS = {
     "late-leader-paper": ("account:late-leader-paper",
@@ -66,7 +55,7 @@ def due(report: dict, now: int) -> list[dict]:
         if today < start:
             continue
         detail = storage_detail((report.get("health") or {}).get("storage")) if r["kind"] == "storage" \
-            else r.get("detail", "")
+            else r.get("detail", "")       # kind "text": a fixed owner question
         out.append({"id": r["id"], "title": r["title"], "detail": detail, "severity": "decide",
                     "slack": (today - start).days < int(r.get("slack_days", 0))})
     for v in report.get("variants") or []:

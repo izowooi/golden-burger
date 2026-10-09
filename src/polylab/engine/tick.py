@@ -260,12 +260,12 @@ def _requote_entry(ledger: StrategyLedger, venue, strategy, pos, now: int, out: 
     """Re-post the unfilled remainder of a maker entry on the same position. False = nothing posted."""
     pview = row_to_view(pos)
     ex = strategy.execution(pos["sport"])
-    lo, hi = _entry_band(ledger, pos)
+    lo, hi, rule = _entry_band(ledger, pos)
     try:
         book, tick = venue.book(pos["token_id"], now), venue.tick(pos["token_id"])
     except Exception:
         return False
-    px = makermod.entry_price(book, tick, lo, hi, str(ex["maker_price_rule"]))
+    px = makermod.entry_price(book, tick, lo, hi, rule or str(ex["maker_price_rule"]))
     spent = float(pos["shares"] or 0) * float(pos["entry_price"] or 0)
     remaining = float(pos["stake_usdc"]) - spent
     if px is None or remaining <= 0:
@@ -281,8 +281,8 @@ def _requote_entry(ledger: StrategyLedger, venue, strategy, pos, now: int, out: 
     return False
 
 
-def _entry_band(ledger: StrategyLedger, pos) -> tuple[float, float]:
-    """[min_price, max_price] frozen at entry (features of the 'enter' decision), else the order's own price."""
+def _entry_band(ledger: StrategyLedger, pos) -> tuple[float, float, str | None]:
+    """[min_price, max_price] and the per-intent maker price rule frozen at entry (features of the 'enter' decision)."""
     r = ledger.conn.execute("SELECT features FROM decisions WHERE action='enter' AND token_id=? AND ts<=? "
                             "ORDER BY ts DESC LIMIT 1", (pos["token_id"], pos["opened_at"])).fetchone()
     try:
@@ -290,7 +290,7 @@ def _entry_band(ledger: StrategyLedger, pos) -> tuple[float, float]:
     except ValueError:
         f = {}
     lo, hi = f.get("band_lo"), f.get("band_hi")
-    return (float(lo) if lo is not None else 0.0, float(hi) if hi is not None else 1.0)
+    return (float(lo) if lo is not None else 0.0, float(hi) if hi is not None else 1.0, f.get("maker_price_rule"))
 
 
 def maintain_maker(ledger: StrategyLedger, venue, strategy, view, now: int, *, kill: bool) -> dict:
@@ -330,8 +330,8 @@ def maintain_maker(ledger: StrategyLedger, venue, strategy, view, now: int, *, k
                         mine = float(order["shares"] or 0) - float(order["filled_shares"] or 0)
                         book = makermod.own_removed(venue.book(order["token_id"], now), "BUY",
                                                     float(order["limit_price"]), mine if venue.mode == "live" else 0)
-                        lo, hi = _entry_band(ledger, pos)
-                        target = makermod.entry_price(book, tick, lo, hi, str(ex["maker_price_rule"]))
+                        lo, hi, rule = _entry_band(ledger, pos)
+                        target = makermod.entry_price(book, tick, lo, hi, rule or str(ex["maker_price_rule"]))
                     except Exception:
                         target, tick = None, makermod.DEFAULT_TICK
                     # floor at 1 cent: on 0.001-tick books a 2-tick tolerance would re-quote on every wiggle
@@ -609,7 +609,8 @@ def _maker_entry(ledger: StrategyLedger, venue, strategy, intent: EntryIntent, s
     except Exception as e:
         res.skip(f"maker_book_error:{type(e).__name__}")
         return None
-    px = makermod.entry_price(book, tick, intent.min_price, intent.max_price, str(ex["maker_price_rule"]))
+    rule = str(intent.features.get("maker_price_rule") or ex["maker_price_rule"])     # per-intent override (ai_ou05)
+    px = makermod.entry_price(book, tick, intent.min_price, intent.max_price, rule)
     feats = {**intent.features, "signal_price": intent.signal_price, "stake": stake, "order_style": "maker",
              "maker_price": px, "best_bid": book.best_bid if book else None,
              "best_ask": book.best_ask if book else None, "band_lo": intent.min_price, "band_hi": intent.max_price,

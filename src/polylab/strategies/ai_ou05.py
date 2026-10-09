@@ -8,7 +8,10 @@ highest P(0-0) are Under picks ("0-0"). This strategy only reads those rows (can
 - buys the picked side's token with a post-only resting BUY (order_style must be maker: no taker entries, so no
   fee), from the pick until `maker_entry_cutoff_minutes` before kickoff, re-quoted by the maker engine;
 - only when the market is not over-priced as a whole: overround = Over ask + Under ask - 1 <= max_overround
-  (the owner skips sums >= 1.05; at 1.03-1.04 a bid inside the spread is what makes the trade fee-free and cheap);
+  (the owner skips sums >= 1.05). Not a flat gate (owner 2026-10-10 `ai-ou05:overround-priority`): the further the
+  sum is from 1.0 the more both sides lose, so tight books come first — intents are ordered by overround, and books
+  with overround <= tight_overround rest one tick inside the spread (`improve`, fills sooner) while wider books
+  wait at the best bid (`join`, cheaper, the owner's manual "bid a little lower" at 1.03-1.04);
 - only inside the side's price band, and never on a condition the account's owner already holds outside this
   ledger (red is also the owner's manual wallet: a redeem pays a condition's whole holding in one transaction);
 - holds to resolution: no take-profit, no stop-loss (the study measures calibration at settlement).
@@ -33,9 +36,11 @@ DEFAULTS = {
     "sides": ["over", "under"],
     "leagues": None,
     "max_overround": 0.04,
+    "tight_overround": 0.01,
+    "wide_price_rule": "join",
     "over_price_min": 0.80,
-    "over_price_max": 0.985,
-    "under_price_min": 0.015,
+    "over_price_max": 0.99,
+    "under_price_min": 0.01,
     "under_price_max": 0.20,
     "book_max_age_s": 900,
     "owner_holdings_max_age_s": 7200,
@@ -160,6 +165,8 @@ class AiOu05(Strategy):
                 self.skip(gk, "price_out_of_band")
                 continue
             to_kick = game.start_time - now
+            tight = ovr <= float(prm["tight_overround"]) + EPS
+            rule = str(self.execution("soccer")["maker_price_rule"]) if tight else str(prm["wide_price_rule"])
             intents.append(EntryIntent(
                 token_id=token, condition_id=cid, game_key=gk, sport="soccer", league=game.league,
                 outcome_label=OUTCOME[side], signal_price=book.best_ask, min_price=lo, max_price=hi,
@@ -172,8 +179,9 @@ class AiOu05(Strategy):
                           "p00_claude": pk["p00_claude"], "p00_codex": pk["p00_codex"], "p00_mean": pk["p00_mean"],
                           "overround": ovr, "best_bid": book.best_bid, "best_ask": book.best_ask,
                           "implied_p00": round(book.best_ask if side == "under" else 1 - book.best_ask, 4),
-                          "overround_at_pick": pk.get("overround"), "minutes_to_kickoff": round(to_kick / 60, 2)},
-                priority=(0 if side == "over" else 1, pk.get("pick_rank") or 99, game.start_time, gk)))
+                          "overround_at_pick": pk.get("overround"), "minutes_to_kickoff": round(to_kick / 60, 2),
+                          "overround_tier": "tight" if tight else "wide", "maker_price_rule": rule},
+                priority=(ovr, pk.get("pick_rank") or 99, game.start_time, gk)))
         intents.sort(key=lambda i: i.priority)
         return intents
 

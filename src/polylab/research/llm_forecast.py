@@ -55,16 +55,18 @@ MIN_LEAD_MIN = 20              # games kicking off sooner than this are left out
 MAX_GAMES = 40                 # "all candidate games"; both engines run in parallel inside the Jenkins budget
 ENGINE_TIMEOUT_S = 3000        # 2026-10-10: 11 games took ~9 min; a 40-game league weekend needs headroom
 MAX_SOURCES = 12
-MAX_FACTORS = 8
+MAX_FACTORS = 12
+RESEARCH_KEYS = ("form", "strength_gap", "managers", "h2h", "absences", "context")   # prompt v2 (2026-10-10)
 TOP_N = 5                      # each engine's own ranked list (consensus qualification uses top-5)
 ENGINES = ("claude", "codex")  # codex = ChatGPT (codex CLI)
 ENGINE_LABEL = {"claude": "Claude", "codex": "ChatGPT"}
 CONSENSUS_RULE = {"aggregate": "mean_p00", "order": "lowest_p00_first", "qualify": "both_engines_top5",
                   "qualify_top": TOP_N, "picks": 3, "engines": list(ENGINES), "on_engine_failure": "empty"}
 CONSENSUS_VARIANT = "llm-nil-consensus"
-# 2026-10-10 owner decision `ai-ou05:red-live`: the O/U 0.5 study pool is Europe's top-5 leagues + MLS only. These
-# games are offered to the AIs first (select_games) so the game cap never trims them, and picks rank only among them.
-OU05_LEAGUES = ("epl", "lal", "bun", "sea", "fl1", "mls")
+# 2026-10-10 owner decisions `ai-ou05:red-live` + `ai-ou05:leagues`: the O/U 0.5 study pool is Europe's top-5 leagues,
+# MLS, the Champions League, the Europa League and the Nations League. These games are offered to the AIs first
+# (select_games) so the game cap never trims them, and picks rank only among them.
+OU05_LEAGUES = ("epl", "lal", "bun", "sea", "fl1", "mls", "ucl", "uel", "unl")
 OU05_VARIANT = "ai-ou05-red"
 OU05_RULE = {"pool": "OU05_LEAGUES games with a Total 0.5 market (both tokens) at forecast time, forecast by both "
                      "engines, kickoff after the picks were made",
@@ -459,14 +461,13 @@ def build_context(cwd: Path, games: list[GameCtx], quotes: dict[str, dict], base
     cwd.mkdir(parents=True, exist_ok=True)
     rows = []
     for g in games:
-        q = {role: quotes.get(tok) for role, tok in (g.tokens or {}).items()}
+        # 2026-10-10 protocol v2: the AI never sees Polymarket prices. The study asks whether a frontier model's own
+        # research beats the market, so an anchor on the market price would only measure the market twice.
+        # Prices are still recorded per forecast row (from `quotes`) for scoring.
         rows.append({
             "game_key": g.game_key, "league": g.league, "home_team": g.home_team, "away_team": g.away_team,
             "kickoff_utc": dt.datetime.fromtimestamp(g.kickoff, dt.timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),
             "kickoff_kst": kst(g.kickoff, "%Y-%m-%d %H:%M"),
-            "polymarket": {
-                "over_0_5_goals": q.get("over") or "no Total 0.5 market collected for this game",
-                "draw_yes": q.get("draw"), "home_win_yes": q.get("home"), "away_win_yes": q.get("away")},
         })
     games_json = json.dumps({"generated_at_utc": dt.datetime.fromtimestamp(now, dt.timezone.utc).isoformat(),
                              "games": rows}, ensure_ascii=False, indent=1)
@@ -476,34 +477,86 @@ def build_context(cwd: Path, games: list[GameCtx], quotes: dict[str, dict], base
                 "rate_0_0 = share of 0-0 finals, mean_goals = mean total goals",
         "leagues": base_rates}, indent=1))
     (cwd / "MANIFEST.md").write_text(
-        "# LLM 0-0 forecast context\n\n- games.json: games to forecast (prices: bid/ask/mid in USDC = implied prob)\n"
+        "# LLM 0-0 forecast context\n\n- games.json: games to forecast (teams, league, kickoff; no market prices)\n"
         "- base_rates.json: league 0-0 base rates from our own finished games\n\n"
         f"Write forecasts.json here (schema {SCHEMA_ID}, see the prompt). Nothing else is required.\n")
     return hashlib.sha256(games_json.encode()).hexdigest()[:16]
 
 
+# 2026-10-10 owner `ai-ou05:frontier-models`: both engines are pinned to the current frontier models the owner chose
+# (Claude Opus 5.5, ChatGPT GPT-6.1-Sol) with high reasoning effort. Unpinned, the forecasts had silently run on the
+# CLI defaults (claude: the account default Sonnet 4.6; codex with --ignore-user-config: gpt-6.1-sol at effort none).
+FORECAST_CLAUDE_MODEL = "claude-opus-5-5"     # needs Claude Code >= 2.1.280
+FORECAST_CLAUDE_EFFORT = "high"
+FORECAST_CODEX_MODEL = "gpt-6.1-sol"
+FORECAST_CODEX_EFFORT = "high"
+
+
 class ForecastClaudeEngine(ClaudeEngine):
+    def __init__(self, secrets_dir: Path | None = None, model: str | None = None, effort: str | None = None):
+        super().__init__(secrets_dir, model or os.environ.get("POLYLAB_FORECAST_CLAUDE_MODEL") or FORECAST_CLAUDE_MODEL)
+        self.effort = effort or os.environ.get("POLYLAB_FORECAST_CLAUDE_EFFORT") or FORECAST_CLAUDE_EFFORT
+
     def command(self) -> list[str]:
         cmd = ["claude", "-p", "--output-format", "json", "--permission-mode", "dontAsk",
                "--tools", FORECAST_TOOLS, "--allowedTools", FORECAST_ALLOW, "--disallowedTools", FORECAST_DENY]
-        return cmd + (["--model", self.model] if self.model else [])
+        cmd += ["--model", self.model] if self.model else []
+        return cmd + (["--effort", self.effort] if self.effort else [])
 
 
 CODEX_WEB_ENV = "POLYLAB_FORECAST_CODEX_WEB"
+# Read-protected paths under $HOME while codex has a live web search (2026-10-10, owner asked for ChatGPT web search):
+# ~/.polylab holds the 16 account keys, the Claude token and Slack/Supabase secrets. codex's own seatbelt cannot be
+# nested, so codex runs with -s danger-full-access INSIDE this outer sandbox-exec profile, which denies reading these
+# paths and any write outside the context dir / codex state / temp. Verified on the Mac mini (macOS 26, codex-cli
+# 0.159.2): `head ~/.polylab/accounts.env` -> Operation not permitted, `touch ~/x` -> Operation not permitted.
+CODEX_SECRET_DIRS = (".polylab", ".ssh", ".aws", ".gnupg", ".jenkins", ".config", ".docker", ".kube",
+                     "Library/Keychains", ".claude", ".claude.json", ".netrc", ".git-credentials", ".npmrc", ".pypirc")
+
+
+def codex_sandbox_profile(cwd: Path, home: Path | None = None) -> str:
+    home = Path(home or Path.home())
+    reads = " ".join(f'(subpath "{home / d}")' for d in CODEX_SECRET_DIRS)
+    writable = [Path(cwd).resolve(), home / ".codex", Path("/private/tmp"), Path("/private/var/folders"), Path("/dev")]
+    writes = " ".join(f'(subpath "{w}")' for w in writable)
+    return (f"(version 1)(allow default)(deny file-read* {reads})"
+            f"(deny file-write* (require-not (require-any {writes})))")
 
 
 class ForecastCodexEngine(CodexEngine):
-    """ChatGPT engine (runs alongside Claude, not as a fallback). Web search stays OFF unless POLYLAB_FORECAST_CODEX_WEB=1: the codex sandbox limits writes
-    only and can read ~/.polylab, so untrusted web pages + a live search tool would be an exfiltration channel
-    (a search query never passes slack.scrub). Works when enabled (codex-cli 0.159.2, Mac mini, 2026-10-01)."""
+    """ChatGPT engine (runs alongside Claude, not as a fallback), GPT-6.1-Sol at high effort with live web search.
+    Web search runs only inside the outer sandbox-exec profile (codex_sandbox_profile); where sandbox-exec is missing
+    the engine refuses to run with web search rather than run unprotected. POLYLAB_FORECAST_CODEX_WEB=0 turns web
+    search off (then codex's own workspace-write sandbox applies, as before 2026-10-10)."""
 
-    def __init__(self, *a, web: bool | None = None, **kw):
+    def __init__(self, *a, web: bool | None = None, effort: str | None = None, sandbox: str | None = None, **kw):
+        kw.setdefault("model", os.environ.get("POLYLAB_FORECAST_CODEX_MODEL") or FORECAST_CODEX_MODEL)
         super().__init__(*a, **kw)
-        self.web = os.environ.get(CODEX_WEB_ENV) == "1" if web is None else web
+        self.web = os.environ.get(CODEX_WEB_ENV, "1") != "0" if web is None else web
+        self.effort = effort or os.environ.get("POLYLAB_FORECAST_CODEX_EFFORT") or FORECAST_CODEX_EFFORT
+        self.sandbox = sandbox or "/usr/bin/sandbox-exec"
+
+    def available(self) -> tuple[bool, str]:
+        ok, why = super().available()
+        if ok and self.web and not Path(self.sandbox).exists():
+            return False, "sandbox-exec 없음: 비밀 보호 없이 웹 검색을 켜지 않음"
+        return ok, why
 
     def command(self, cwd: Path) -> list[str]:
-        cmd = super().command(cwd)
-        return [('web_search="live"' if c == 'web_search="disabled"' else c) for c in cmd] if self.web else cmd
+        cmd = super().command(cwd) + []
+        cmd[-1:-1] = ["-c", f'model_reasoning_effort="{self.effort}"'] if self.effort else []
+        if not self.web:
+            return cmd
+        out = []
+        for c in cmd:
+            if c == 'web_search="disabled"':
+                c = 'web_search="live"'
+            elif c == "workspace-write":
+                c = "danger-full-access"          # confinement comes from the outer profile below
+            elif c == "sandbox_workspace_write.network_access=false":
+                c = "sandbox_workspace_write.network_access=true"
+            out.append(c)
+        return [self.sandbox, "-p", codex_sandbox_profile(cwd)] + out
 
 
 def default_engines() -> list[Engine]:
@@ -546,6 +599,11 @@ def parse_forecasts(data: Any, allowed: set[str]) -> tuple[list[dict], list[str]
         seen.add(key)
         sources = [s.strip() for s in (g.get("sources") or []) if isinstance(s, str) and _URL.match(s.strip())]
         factors = [_text(f) for f in (g.get("factors") or g.get("key_factors") or []) if str(f).strip()]
+        research = g.get("research") if isinstance(g.get("research"), dict) else {}
+        found = [f"{k}: {_text(research[k])}" for k in RESEARCH_KEYS if str(research.get(k) or "").strip()]
+        if len(found) < len(RESEARCH_KEYS):
+            problems.append(f"{key}: research {len(found)}/{len(RESEARCH_KEYS)} items")
+        factors = found + factors
         conf = str(g.get("confidence", "")).lower()
         rows.append({"game_key": key, "ai_prob": round(p, 4), "ai_p_draw": _prob(g.get("p_draw")),
                      "confidence": conf if conf in CONFIDENCE else None,
@@ -559,16 +617,17 @@ def parse_forecasts(data: Any, allowed: set[str]) -> tuple[list[dict], list[str]
 
 
 def _model_from_log(cwd: Path, engine: Engine) -> str | None:
-    if getattr(engine, "model", None):
-        return engine.model
+    """The model that actually answered (claude: modelUsage of the run), else the pinned model; `@effort` appended."""
+    effort = getattr(engine, "effort", None)
+    tag = f"@{effort}" if effort else ""
     if engine.name != "claude":
-        return None
+        return f"{engine.model}{tag}" if getattr(engine, "model", None) else None
     try:
         out = (cwd / "claude.log").read_text().split("\n--- stderr ---")[0].strip().splitlines()
         usage = json.loads(out[-1]).get("modelUsage") or {}
-        return ",".join(sorted(usage)) or None
+        return (",".join(sorted(usage)) + tag) if usage else (f"{engine.model}{tag}" if engine.model else None)
     except (OSError, IndexError, json.JSONDecodeError, AttributeError):
-        return None
+        return f"{engine.model}{tag}" if getattr(engine, "model", None) else None
 
 
 def run_engine(engine: Engine, prompt: str, cwd: Path, allowed: set[str], timeout: int,
@@ -931,7 +990,6 @@ def _pct(v: float | None) -> str:
 
 def slack_text(result: dict, status: str | None = None, now: int | None = None) -> str:
     date = kst_date(int(now if now is not None else time.time()))
-    status = status or consensus_variant_status()
     head = f"[연구] AI 교차검증 0:0 예측 {date}"
     if not result.get("ok") and not result.get("engines"):
         return f"{head}: 예측 실패 — {str(result.get('error') or result.get('skipped') or '')[:200]}"
@@ -939,26 +997,13 @@ def slack_text(result: dict, status: str | None = None, now: int | None = None) 
     parts = []
     for n in ENGINES:
         e = eng.get(n) or {}
-        parts.append(f"{ENGINE_LABEL[n]} {e['n']}경기" if e.get("ok") else f"{ENGINE_LABEL[n]} 실패")
+        parts.append(f"{ENGINE_LABEL[n]}({e.get('model') or '?'}) {e['n']}경기" if e.get("ok")
+                     else f"{ENGINE_LABEL[n]} 실패")
     lines = [f"{head}: {' · '.join(parts)} · Over 0.5 시장 {result.get('over_markets', 0)}경기"]
     cons = result.get("consensus") or {}
     if cons.get("status") != "ok":
-        lines.append(f"합의 없음(규칙상 비움): {str(cons.get('reason') or '')[:200]}")
-    elif not cons.get("picks"):
-        lines.append(f"합의 후보 없음: 두 AI 모두 top-5 에 넣은 경기가 없음 (공동 예측 {cons.get('n_games', 0)}경기)")
-    else:
-        lines.append("합의 top-3 (두 AI 모두 top-5, 평균 P(0:0) 낮은 순):")
-        for r in cons["picks"]:
-            ask = r.get("market_ask_at_forecast")
-            mtxt = (f"시장 내재 {_pct(r['market_implied_p00'])} (1−Over ask {ask:.3f})" if ask is not None
-                    else "Over 0.5 시장가 없음")
-            lines.append(f"{r['consensus_rank']}. {r['home_team']} vs {r['away_team']} "
-                         f"({(r['league'] or '').upper()}, {kst(r['kickoff'])} KST) P(0:0) Claude "
-                         f"{_pct(r['p00_claude'])} · ChatGPT {_pct(r['p00_codex'])} · 합의 {_pct(r['p00_consensus'])}"
-                         f" · {mtxt}")
+        lines.append(f"두 AI 합의 없음(규칙상 비움): {str(cons.get('reason') or '')[:200]}")
     lines += ou05_slack_lines(cons.get("ou05") or {})
-    mode = {"live": "실거래(live)", "paper": "paper(가상)", "off": "꺼짐"}.get(status, "미등록")
-    lines.append(f"{CONSENSUS_VARIANT}: {mode} · 대조군 llm-nil-draw(Claude 단독): paper · 기준선 goal-over-all")
     lines.append(DISCLAIMER)
     return "\n".join(lines)
 
@@ -969,7 +1014,8 @@ def ou05_slack_lines(ou: dict, status: str | None = None) -> list[str]:
         return []
     mode = {"live": "실거래(live)", "paper": "paper(가상)", "off": "꺼짐"}.get(
         status or variant_mode(OU05_VARIANT), "미등록")
-    head = f"O/U 0.5 픽 (유럽 5대 리그+MLS, 두 AI 모두 각자 상위 {OU05_RULE['qualify_top']}위) → {OU05_VARIANT} {mode}"
+    head = (f"O/U 0.5 픽 (5대 리그·MLS·UCL·UEL·네이션스리그, 두 AI 모두 각자 상위 {OU05_RULE['qualify_top']}위) "
+            f"→ {OU05_VARIANT} {mode}")
     if ou.get("status") != "ok":
         return [f"{head}: 없음 — {str(ou.get('reason') or '')[:150]}"]
     lines = [f"{head}: 대상 {ou.get('n_pool', 0)}경기 · Over {len(ou.get('over') or [])} · Under {len(ou.get('under') or [])}"]
