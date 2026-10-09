@@ -2,7 +2,7 @@
 
 가제: *Are near-certain soccer "no 0-0" prices underpriced? Two-LLM cross-validated picks, fee-free maker execution*
 
-연구자 결정 2026-10-10 `ai-ou05:red-live`(reports/decisions.md). 변형 `ai-ou05-red`(family `ai_ou05`, red 계좌, 실거래).
+연구자 결정 2026-10-10 `ai-ou05:red-live`·`ai-ou05:protocol-v2`(reports/decisions.md). 변형 `ai-ou05-red`(family `ai_ou05`, red 계좌, 실거래).
 코드: 픽 규칙·저장 `src/polylab/research/llm_forecast.py`(`OU05_RULE`, `compute_ou05_picks`, 표 `ou05_picks`),
 전략 `src/polylab/strategies/ai_ou05.py`, 지정가 엔진 `src/polylab/execution/maker.py`, Jenkins `polylab-llm-forecast`(매일 10:00 KST)·`polylab-tick`(매분).
 
@@ -12,6 +12,29 @@
 Polymarket Total 0.5 에서 Over(Yes)·Under(No) 매도호가의 합이 1.01~1.03 이면 참여하고(1.07 은 무시, 1.05 이상은 진입 안 함),
 합이 1.03~1.04 로 벌어져 있으면 매도호가보다 조금 낮은 가격에 매수 주문을 걸어 두었다(수수료 없음, 체결은 기다림).
 네이션스리그 등에서 10건 넘게 체결해 모두 이겼다. 표본이 작고 정규리그가 아니어서, 이 절차를 정규리그로 넓혀 자동화한다.
+
+## 1-0. 2026-10-10 두 엔진 실측 (Mac mini, 실제 경기 4개, 연구 DB 에 기록하지 않은 검증 실행)
+
+| 엔진 | 실제 모델 | 소요 | 조사 6항목 | 경기당 출처 | 비밀 폴더 읽기 시험 |
+|---|---|---|---|---|---|
+| Claude | claude-opus-5-5 (high; 웹 페이지 요약에 claude-haiku-5-5 를 내부 사용) | 228초 | 4/4 경기 완비 | 1–3 | 차단(BLOCKED) |
+| ChatGPT | gpt-6.1-sol (reasoning high, 웹 검색) | 396초 | 4/4 경기 완비 | 4–9 | 차단(BLOCKED) |
+
+ChatGPT 가 경기당 약 100초라 40경기를 한 번에 맡기면 엔진 제한(3000초)을 넘는다. 그래서 엔진마다 10경기 묶음을 3개씩 병렬로 돌린다
+(`CHUNK_SIZE`·`CHUNK_PARALLEL`, 묶음 하나가 실패해도 나머지 경기 예측은 남는다). 엔진의 순위는 모든 묶음의 확률로 다시 매긴다.
+
+## 1-1. 연구의 핵심과 성공 기준 (연구자, 2026-10-10)
+
+핵심은 **최신 프론티어 모델(Claude Opus 5.5, ChatGPT GPT-6.1-Sol)이 스스로 조사한 근거로 Total 0.5 의 0:0 여부를
+Polymarket 보다 더 정확히 맞추는가**다. 양 팀 상황·전력 차·감독 성향·최근 상대 전적 등을 AI 가 직접 비교해야 한다.
+AI 가 시장보다 못 맞추거나 같으면 이 연구는 실패로 본다(귀무가설 채택). 그래서:
+
+- 두 엔진은 모델·추론 강도를 고정한다(Claude `claude-opus-5-5` effort high, ChatGPT `gpt-6.1-sol` reasoning high). 실행마다
+  실제 응답한 모델이 `runs.model` 에 남는다. 더 비싼 모델(Fable·Astra)은 쓰지 않는다(연구자).
+- 두 엔진 모두 웹으로 조사한다(form·strength_gap·managers·h2h·absences·context 6개 항목, 출처 URL 필수, 프롬프트 v2).
+- **AI 에게 시장 가격을 주지 않는다**(프로토콜 v2). 시장 가격을 보면 AI 예측이 시장에 끌려가 "AI vs 시장" 비교가 흐려진다.
+  가격은 같은 시각 기록만 해 두고 채점에 쓴다.
+- 1차 지표: 같은 경기·같은 시각의 Brier(AI P(not 0:0) vs Over 0.5 시장 중간가), 두 엔진·합의 각각, 95% 신뢰구간.
 
 ## 2. 가설
 
@@ -25,7 +48,8 @@ Polymarket Total 0.5 에서 Over(Yes)·Under(No) 매도호가의 합이 1.01~1.0
 
 ## 3. 사전 등록 픽 규칙 (`OU05_RULE`, 2026-10-10)
 
-1. 대상(pool): 예측 시점에 Total 0.5 마켓(Over·Under 두 토큰)이 있는 **EPL·라리가·분데스리가·세리에A·리그1·MLS** 경기 중,
+1. 대상(pool): 예측 시점에 Total 0.5 마켓(Over·Under 두 토큰)이 있는 **EPL·라리가·분데스리가·세리에A·리그1·MLS·챔피언스리그·
+   유로파리그·네이션스리그**(10-10 추가) 경기 중,
    두 엔진이 모두 예측했고 킥오프가 픽 시각 이후인 경기. 이 6개 리그는 AI 에게 넘기는 경기 목록(최대 40)에 먼저 들어간다.
 2. 각 엔진의 P(0:0) = 1 − p_not_0_0 로 pool 안에서 순위를 매긴다(낮은 순·높은 순, 같으면 game_key).
 3. Over 픽: 두 엔진 모두 자기 순위 **가장 낮은 P(0:0) 8위 안**. Under 픽: 두 엔진 모두 **가장 높은 P(0:0) 8위 안**.
@@ -45,8 +69,8 @@ Polymarket Total 0.5 에서 Over(Yes)·Under(No) 매도호가의 합이 1.01~1.0
 | 단위 | 5 USDC | `stake:freeze-5` |
 | 주문 | 지정가만(post-only GTC, `order_style: maker`) | 매수호가 위 한 틱(스프레드 안, 매도호가를 넘지 않음)에 걸어 둔다. 남이 체결해 줄 때만 사므로 수수료가 없다. taker 로 설정되면 진입 자체를 하지 않는다 |
 | 진입 시간 | 픽 직후 ~ 킥오프 5분 전 | 체결되지 않으면 킥오프 5분 전에 취소. 60분마다 또는 호가가 2틱 넘게 움직이면 다시 건다 |
-| 호가 합 | Over 매도호가 + Under 매도호가 ≤ **1.04** | 1.05 이상은 진입하지 않는다. 걸어 둔 뒤 넘으면 취소 |
-| 가격 범위 | Over 0.80–0.985, Under 0.015–0.20 | 0.5 전후의 이상 시장 배제 |
+| 호가 합 | Over 매도호가 + Under 매도호가 ≤ **1.04**, 그 안에서 **1.0 에 가까울수록 우선** | 1.05 이상은 진입하지 않는다. 같은 주기 진입은 호가 합이 낮은 순. 1.01 이하(tight)는 스프레드 안 한 틱(빨리 체결), 1.01 초과(wide)는 매수호가에 맞춰 기다린다(더 싸게). 걸어 둔 뒤 1.04 를 넘으면 취소. 호가 합 구간은 분석 층(stratum)으로도 쓴다 |
+| 가격 범위 | Over 0.80–0.99, Under 0.01–0.20 | 0.5 전후의 이상 시장 배제(10-10 연구자 조정) |
 | 청산 | 없음(정산까지 보유) | 손절·익절이 있으면 정산 적중률을 잴 수 없다 |
 | 한도 | 동시 60건·묶인 금액 320 USDC, 일 손실 정지 사실상 없음(10000) | Under 는 대부분 지는 것이 정상이라 일 손실 정지가 표본을 깎으면 안 된다 |
 | 자동 조정 | 없음(validator `OWNER_LOCKED`, ladder 제외) | Over 한 번의 0:0 이 약 30번의 승리를 지워 ladder 의 paper 강등이 표본을 끊는다. 바꾸려면 연구자가 yaml 을 고친다. 비상 정지는 KILL |
@@ -75,15 +99,17 @@ Under 를 평균 0.05 에 사서 실제 10% 임을 보이려면 약 150건. 리�
 ## 6. 한계
 
 - 모든 픽이 체결되지는 않는다(지정가). ITT 분모와 결과별 체결률로 이 편향을 드러낸다.
-- ChatGPT 쪽 예측은 웹 검색 없이 한다(보안상 기본 off, §7). 부상·라인업 뉴스는 Claude 쪽만 반영된다.
+- 2026-10-10 이전 예측(프로토콜 v1)은 Claude Sonnet 4.6(계정 기본값)·GPT-6.1-Sol(추론 없음, 웹 없음)이었고 AI 가 시장 가격을 봤다.
+  v2 와 섞지 않고 따로 분석한다.
 - 같은 Over 호가에 lion 의 `goal-over-all` 도 지정가를 건다. 두 봇이 서로 한 틱씩 올려 경쟁할 수 있다(각자 자기 주문만 호가에서 빼고 계산).
 - 하루 한 번(10:00 KST) 향후 30시간만 본다. 그 뒤 경기는 다음 날 실행에서 고른다.
 
-## 7. 연구자에게 남긴 질문 (attention)
+## 7. 보안: ChatGPT 웹 검색
 
-- `question:ai-ou05-chatgpt-web`: ChatGPT(codex) 웹 검색을 켤지. codex 샌드박스는 홈 폴더(계좌 키)를 읽을 수 있어 웹 페이지의 악성 지시가
-  검색어로 키를 빼낼 위험이 있다. 켜면 `POLYLAB_FORECAST_CODEX_WEB=1`.
-- `question:ai-ou05-leagues`: 챔피언스리그·유로파·네이션스리그를 넣을지(연구자의 수동 검증은 네이션스리그였다).
+ChatGPT(codex)는 셸로 홈 폴더를 읽을 수 있어서, 웹 페이지의 악성 지시가 검색어로 비밀을 빼낼 위험이 있다(`~/.polylab` 에 16개 계좌 키와
+토큰이 있다). 2026-10-10 연구자 요청으로 웹 검색을 켜면서, codex 를 macOS `sandbox-exec` 프로필 안에서 실행한다:
+`~/.polylab`·`~/.ssh`·`~/.aws`·키체인 등 읽기 금지, context 폴더·codex 상태·임시 폴더 밖 쓰기 금지(`codex_sandbox_profile`).
+Mac mini 실측: 계좌 키 파일 읽기와 홈 폴더 쓰기가 모두 "Operation not permitted". 남는 위험은 codex 자신의 로그인 토큰(`~/.codex`)뿐이다.
 
 ## 8. 보고서를 사람이 올릴 필요가 있나
 

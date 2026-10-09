@@ -17,6 +17,12 @@ Jenkins `polylab-llm-forecast`(매일 10:00 KST).
 경기 상한 30 → **40**, 6개 리그 경기를 목록 앞에 둔다(상한에 잘리지 않게), 엔진 시간 제한 1500 → 3000초, Jenkins 시간 제한 60 → 110분.
 프롬프트는 바꾸지 않았다(`prompt_sha` 동일). 2026-10-10 이후 run 은 경기 구성이 달라졌으므로 분석 시 기간을 나눈다.
 
+**2026-10-10 프로토콜 v2 + 흡수(`ai-ou05:protocol-v2`, `ai-ou05:absorb-llm-nil`)**: 모델 고정(Claude Opus 5.5 effort high,
+GPT-6.1-Sol reasoning high — 그전에는 고정이 없어 Claude 는 계정 기본 Sonnet 4.6, codex 는 `--ignore-user-config` 기본값 GPT-6.1-Sol
+추론 없음으로 돌았다), ChatGPT 웹 검색 on(비밀 차단 sandbox-exec 안), **AI 에게 시장 가격 비공개**, 조사 6항목 구조화 프롬프트.
+`llm-nil-draw`·`llm-nil-consensus` 는 off 로 두고 이 연구는 `docs/research/ai-ou05-study.md` 로 흡수했다. 예측·합의·채점 기록은 계속 쌓이며,
+v1(2026-10-02~10-09) 과 v2 는 따로 분석한다.
+
 ## 1. 배경과 가설
 
 저자는 매일 아침 AI 에게 "0-0 이 나지 않을 주요 리그 경기 1–3개"를 물어 왔다(전력 차·폼·감독 성향·경기 중요도·상대 전적 0-0 이력).

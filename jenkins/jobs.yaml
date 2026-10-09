@@ -51,7 +51,7 @@ jobs:
     pull: true
     command: "uv run --no-sync polylab retro monthly"
   polylab-llm-forecast:
-    description: "AI 교차검증(10:00 KST): 향후 30h 주요 리그 축구 경기(유럽 5대 리그+MLS 우선, 최대 40경기)의 0:0 확률을 Claude·ChatGPT 가 각각 예측 → research/llm_forecasts.db(append-only) → 합의 top-3 와 O/U 0.5 픽(두 AI 모두 상위 8위: 0:0 안 날 경기 Over, 날 경기 Under)을 고정 기록하고 Slack 으로. ai-ou05-red(red, 실거래)가 픽에 수수료 없는 지정가를 건다"
+    description: "AI 교차검증(10:00 KST): 향후 30h 주요 리그 축구 경기(5대 리그·MLS·UCL·UEL·네이션스리그 우선, 최대 40경기, 10경기 묶음 3병렬)의 0:0 확률을 Claude Opus 5.5·ChatGPT GPT-6.1-Sol(둘 다 추론 high·웹 조사, 시장 가격 비공개)이 각각 예측 → research/llm_forecasts.db(append-only) → 합의 top-3 와 O/U 0.5 픽(두 AI 모두 상위 8위: 0:0 안 날 경기 Over, 날 경기 Under)을 고정 기록하고 Slack 으로. ai-ou05-red(red, 실거래)가 픽에 수수료 없는 지정가를 건다"
     cron: "TZ=Asia/Seoul\n0 10 * * *"
     timeout_minutes: 110
     pull: true

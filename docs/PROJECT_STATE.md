@@ -20,8 +20,8 @@
 | RQ4 | 거래 단위(5→10→25→50→100 USDC)별 안정성 | 단위 ladder, `analysis/performance.py` |
 | 생애주기 장 | 축구 O/U 0.5 마켓의 Yes·No 매도 호가 합(=1+스프레드)과 Over 과대평가가 상장→킥오프→종료까지 어떻게 변하는가 | `data/ou05/`(O/U 0.5 만, 1분), `analysis/ou05.py`, `/ou05`, `docs/research/ou05-overround-study.md` |
 | 가설(10-06 저녁) | **막판 선두 수렴**: 무승부 없는 승패 마켓에서 경기 전 ≤ X 경기의 선두가 T 이후 Y 를 넘으면 Z 까지 오르는가(역전 확률 vs 가격). 결과: 대부분 구간은 calibration, 원안(언제든 0.80→0.96)은 전 종목 −2.4~−3.4%, 양수는 종목 정규 길이 끝 무렵(NFL·NHL)만 | core.db 1분 가격(2024~), `docs/research/hypothesis-late-leader-convergence.md`, `late-leader-paper` |
-| 0:0 과소평가(10-10) | 두 AI(Claude·ChatGPT)가 모두 0:0 안 날/날 경기로 고른 유럽 5대 리그+MLS 경기의 Over/Under 0.5 정산 적중률 vs 평균 매수가(내재 확률). 지정가(수수료 0)·손절 없음·5 USDC 실거래(red) | `research/llm_forecasts.db` `ou05_picks`(사전 등록 픽, ITT 분모), `strategies/ai-ou05-red.db`, `docs/research/ai-ou05-study.md` |
-| 부록 | LLM(Claude·ChatGPT) 교차검증 0:0 예측 vs 시장 | `research/llm_forecasts.db`, `docs/research/llm-forecast-study.md` |
+| 0:0 과소평가(10-10, **논문 핵심**) | 프론티어 AI(Claude Opus 5.5·GPT-6.1-Sol, 시장 가격 비공개·웹 조사)가 Polymarket 보다 0:0 을 더 정확히 맞추는가(못 맞추거나 같으면 실패). 두 AI 가 모두 0:0 안 날/날 경기로 고른 5대 리그·MLS·UCL·UEL·네이션스리그 경기의 Over/Under 0.5 정산 적중률 vs 평균 매수가(내재 확률). 지정가(수수료 0)·손절 없음·5 USDC 실거래(red) | `research/llm_forecasts.db` `ou05_picks`(사전 등록 픽, ITT 분모), `strategies/ai-ou05-red.db`, `docs/research/ai-ou05-study.md` |
+| (흡수됨) | 기존 LLM 0:0 예측 연구(v1, 10-02~10-09: Sonnet 4.6·추론 없는 GPT, AI 가 시장가를 봄)는 위 연구로 흡수 | `research/llm_forecasts.db`, `docs/research/llm-forecast-study.md` |
 
 ## 운영 구성 (Mac mini 192.168.50.23, Jenkins view `polylab`)
 
@@ -43,8 +43,8 @@
 | late-leader-paper | 없음 | 막판 선두 수렴(10-06 저녁 신설): 경기 전 정배 ≤ X, 시작 T분 뒤 선두가 Y 교차 → Z 익절. NFL 170분·0.88→0.98·≤0.70, NHL 160분·0.80→0.98·≤0.60, NBA·MLB 약한 후보 | 전 종목 paper(자금 있는 여유 계좌 없음 → attention `account:late-leader-paper`). NFL 은 apricot-eco 와 진입 경기 37% 겹침 |
 | cherry-blue / tiger | blue / tiger | 초기 개념: 종료 ~3일 전 0.9 매수→0.95 매도(전 카테고리) | paper (8만 조합 중 우위 없음) |
 | goal-over-all | lion | 주요 리그 축구 Over 0.5 를 킥오프 3일 전~5분 전 지정가 매수, +0.02 익절(AI 조정 가능)·−10% 손절·0.99 보유 | live 5 USDC, maker 주문 |
-| llm-nil-consensus / llm-nil-draw | – | Claude·ChatGPT 0:0 예측 합의 top-3 Over 0.5 | paper |
-| ai-ou05-red | red | 매일 10:00 두 AI 픽(6개 리그, 각자 P(0:0) 하위·상위 8위 공통) → Over/Under 0.5 지정가 매수, 호가 합 ≤ 1.04, 정산 보유 | **live 5 USDC**(10-10 연구자 결정 `ai-ou05:red-live`), 연구자 고정(`OWNER_LOCKED`: AI·ladder 변경 불가). red 는 수동 계좌와 공유 → 트랙 2 는 봇 체결을 거래 해시로 제외, 봇은 연구자 보유 조건 회피 |
+| llm-nil-consensus / llm-nil-draw | – | Claude·ChatGPT 0:0 예측 합의 top-3 Over 0.5 | off(10-10 ai-ou05 로 흡수) |
+| ai-ou05-red | red | 매일 10:00 두 AI 픽(9개 대회, 각자 P(0:0) 하위·상위 8위 공통) → Over(0.80–0.99)/Under(0.01–0.20) 지정가 매수, 호가 합 ≤ 1.04 이고 낮은 순 우선(≤1.01 한 틱 안쪽, 초과는 매수호가 대기), 정산 보유 | **live 5 USDC**(10-10 연구자 결정 `ai-ou05:red-live`), 연구자 고정(`OWNER_LOCKED`: AI·ladder 변경 불가). red 는 수동 계좌와 공유 → 트랙 2 는 봇 체결을 거래 해시로 제외, 봇은 연구자 보유 조건 회피 |
 | 수동 트랙 2 | red(메인)·wolf·eagle | 연구자 직접 베팅(AI 스킬), 공개 주소로 기록만 | O/U 0.5 만 집계 |
 
 - **모든 변형·종목 5 USDC 고정**(10-06 저녁 `stake:freeze-5`: ladder 증액 동결·validator 5 초과 거부, 감액·paper 강등은 유지; 단위 확대는 나중에 별도 paper 연구). 종목별 mode·파라미터가 따로 있다.
@@ -60,7 +60,8 @@
 - plum: NFL 후보 셀 paper out-of-sample 시험(다중 비교에 약함, 시즌당 약 120건). 축구 정산 보유 후보는 10-02 조기 익절 결정과 충돌 → 연구자 판단 대기(문서 5절).
 - 저장 예측 정상 상태 표본이 1일뿐이다(raw lean 은 10-06 부분 일). **2026-10-13 부터** attention `reminder:storage-7d-steady-state` 와 회고 Slack "알림"(3일)이 7일 정상 상태를 자동 보고한다 → 연구자가 decisions.md 로 닫는다.
 - late-leader: 계좌 배정 대기(attention `account:late-leader-paper`; 별칭을 받으면 yaml 에 연결). live 후보는 NFL 하나(R1–R7 통과). NHL 은 엔진 39건으로 n ≥ 40 에 1건 모자라고 120일 창 최대 16건이라 지금 규칙으로는 전환 불가(연구자 창 결정 필요). NBA·MLB 는 약한 후보. 2026-09-30 이후 `game_states` 점수로 "사건(득점) 뒤 교차" 정의와 비교할 표본을 쌓는 중.
-- ai-ou05-red(10-10~): 첫 리그 주말에 예측 실행 시간(40경기, 엔진 3000초 제한)·픽 수·체결률 확인. 연구자 답 대기 `question:ai-ou05-chatgpt-web`(ChatGPT 웹 검색, 지금 꺼짐)·`question:ai-ou05-leagues`(UCL·UEL·네이션스리그). 필요 표본 대략 Over 650건·Under 150건(`docs/research/ai-ou05-study.md` 5절).
+- ai-ou05-red(10-10~): 첫 리그 주말에 예측 실행 시간(40경기, Opus 5.5 high + GPT-6.1-Sol high 웹 조사, 엔진 3000초 제한)·픽 수·체결률 확인. 한 엔진이 시간 초과하면 그날 픽이 없다 → 경기 묶음 분할 필요 여부 판단. 필요 표본 대략 Over 650건·Under 150건(`docs/research/ai-ou05-study.md` 5절). AI vs 시장 Brier 분석(v2 만)과 결과별 체결률은 표본이 쌓이면 회고에 자동화.
+- Mac mini Claude Code 는 2.1.295(10-10 업데이트). Opus 5.5 는 2.1.280 이상 필요.
 - O/U 0.5 생애 곡선: 2~3주 실시간 축적 후 판정(예비: 합 평균 7일+ 1.50 → 6~24시간 1.01).
 - watermelon NBA 첫 20건의 실제 손절 체결가로 합성 호가 백테스트 낙관 여부 확인.
 - 지정가(maker) 주문의 체결률·역선택 관찰 후 cherry 등 다른 전략 적용 검토.

@@ -58,6 +58,11 @@ MAX_SOURCES = 12
 MAX_FACTORS = 12
 RESEARCH_KEYS = ("form", "strength_gap", "managers", "h2h", "absences", "context")   # prompt v2 (2026-10-10)
 TOP_N = 5                      # each engine's own ranked list (consensus qualification uses top-5)
+# Protocol v2 (deep web research per game): each engine gets its games in chunks run in parallel, each chunk in its own
+# context dir, so 40 games fit the Jenkins budget and one slow chunk does not void the day. The engine's ranked list is
+# then derived from its own probabilities across all chunks (documented fallback; the O/U 0.5 picks rank that way).
+CHUNK_SIZE = 10
+CHUNK_PARALLEL = 3
 ENGINES = ("claude", "codex")  # codex = ChatGPT (codex CLI)
 ENGINE_LABEL = {"claude": "Claude", "codex": "ChatGPT"}
 CONSENSUS_RULE = {"aggregate": "mean_p00", "order": "lowest_p00_first", "qualify": "both_engines_top5",
@@ -657,6 +662,34 @@ def run_engine(engine: Engine, prompt: str, cwd: Path, allowed: set[str], timeou
             "problems": problems[:10], "top_derived": derived, "finished_at": finished}
 
 
+def run_engine_chunked(engine: Engine, prompt: str, cwd: Path, games: list[GameCtx], base_rates: dict, now: int,
+                       timeout: int, clock: Callable[[], float] = time.time, chunk_size: int = CHUNK_SIZE,
+                       parallel: int = CHUNK_PARALLEL) -> dict:
+    """run_engine over chunks of `games` (kickoff order). ok when at least one chunk produced valid forecasts; failed
+    chunks are listed in `problems`. Single chunk = plain run_engine in `cwd` itself."""
+    if len(games) <= chunk_size:
+        return run_engine(engine, prompt, cwd, {g.game_key for g in games}, timeout, clock)
+    ordered = sorted(games, key=lambda g: (g.kickoff, g.game_key))
+    chunks = [ordered[i:i + chunk_size] for i in range(0, len(ordered), chunk_size)]
+    for i, chunk in enumerate(chunks):
+        build_context(cwd / f"c{i}", chunk, {}, base_rates, now)
+    with ThreadPoolExecutor(max_workers=max(1, parallel)) as ex:
+        parts = list(ex.map(lambda ic: run_engine(engine, prompt, cwd / f"c{ic[0]}", {g.game_key for g in ic[1]},
+                                                  timeout, clock), enumerate(chunks)))
+    good = [p for p in parts if p["ok"]]
+    problems = [f"chunk {i} failed: {(p.get('reason') or '')[:120]}" for i, p in enumerate(parts) if not p["ok"]]
+    problems += [x for p in parts for x in p.get("problems") or []]
+    out = {"engine": engine.name, "model": next((p["model"] for p in good if p.get("model")), None),
+           "finished_at": max(p["finished_at"] for p in parts), "problems": problems[:20],
+           "chunks": {"n": len(parts), "ok": len(good)}}
+    if not good:
+        return {**out, "ok": False, "rows": [], "top": [], "top_derived": False,
+                "reason": "; ".join(problems)[:300] or "no valid forecasts"}
+    rows = [r for p in good for r in p["rows"]]
+    top = [r["game_key"] for r in sorted(rows, key=lambda r: (-r["ai_prob"], r["game_key"]))][:TOP_N]
+    return {**out, "ok": True, "rows": rows, "top": top, "top_derived": True}
+
+
 # ---------------------------------------------------------------- run
 
 def prompt_text() -> str:
@@ -704,12 +737,11 @@ def run_forecast(paths, *, now: int | None = None, force: bool = False, engines:
         base = Path(paths.state) / "forecast" / stamp
         shas = {n: build_context(base / n, games, quotes, base_rates, now) for n in names}
         context_sha = shas[names[0]]
-        allowed = {g.game_key for g in games}
         stored: dict[str, dict] = {}
         try:
             with ThreadPoolExecutor(max_workers=len(engines)) as ex:      # independent: own cwd, same prompt/context
-                futs = {e.name: ex.submit(run_engine, e, prompt, base / e.name, allowed, timeout, clock)
-                        for e in engines}
+                futs = {e.name: ex.submit(run_engine_chunked, e, prompt, base / e.name, games, base_rates, now,
+                                          timeout, clock) for e in engines}
                 results = {n: f.result() for n, f in futs.items()}
             for n in names:                                                # all DB writes on this thread
                 stored[n] = _store_engine(rdb, results[n], games, quotes, f"{batch_id}-{n}", prompt_sha,
@@ -764,6 +796,7 @@ def _store_engine(rdb, ai: dict, games: list[GameCtx], quotes: dict, run_id: str
             "sources_json": json.dumps(r["sources"]), "created_at": created})
     status = "ok" if rows else "failed"
     detail = {"problems": ai.get("problems"), "reason": ai.get("reason"), "top_derived": ai.get("top_derived"),
+              "chunks": ai.get("chunks"),
               "dropped_after_kickoff": late, "context_dir": str(cwd)}
     _insert_run(rdb, run_id, created, ai["engine"], ai["model"], prompt_sha, context_sha, len(games), rows,
                 status, force, detail)

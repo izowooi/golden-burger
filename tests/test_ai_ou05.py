@@ -346,3 +346,23 @@ def test_context_hides_market_prices_and_research_items_are_kept(tmp_path):
         "factors": ["k"]}, {"game_key": "b", "p_not_0_0": 0.9}]}, {"a", "b"})
     assert rows[0]["factors"][:2] == ["form: f", "strength_gap: s"] and rows[0]["factors"][-1] == "k"
     assert any("b: research 0/6" in p for p in problems)
+
+
+def test_chunked_engine_merges_chunks_and_survives_one_failed_chunk(tmp_path):
+    from test_llm_forecast import FakeEngine
+    games = [g(k, kickoff=NOW + 3600 * (i + 1)) for i, k in enumerate("abcde")]
+
+    def payload(gs):
+        if any(x["game_key"] == "c" for x in gs):
+            return "not json"                                      # the chunk holding c, d fails
+        return {"games": [{"game_key": x["game_key"], "p_not_0_0": 0.9 + 0.01 * i} for i, x in enumerate(gs)]}
+    e = FakeEngine("claude", payload=payload)
+    r = lf.run_engine_chunked(e, "p", tmp_path, games, {}, NOW, 60, clock=lambda: NOW, chunk_size=2, parallel=2)
+    assert r["ok"] and r["chunks"] == {"n": 3, "ok": 2} and len(e.prompts) == 3
+    assert sorted(x["game_key"] for x in r["rows"]) == ["a", "b", "e"] and r["top_derived"]
+    assert any("chunk 1 failed" in p for p in r["problems"])
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["c0", "c1", "c2"]
+    lf.build_context(tmp_path / "s", games[:2], {}, {}, NOW)                 # run_forecast builds it per engine
+    single = lf.run_engine_chunked(FakeEngine("codex", payload=payload), "p", tmp_path / "s", games[:2], {}, NOW, 60,
+                                   clock=lambda: NOW, chunk_size=2)
+    assert single["ok"] and not (tmp_path / "s" / "c0").exists()
