@@ -301,8 +301,15 @@ def apply_market_filter(conn, markets: list[str]) -> None:
     conn.execute(f"UPDATE position_meta SET track2=0 WHERE market_type IS NULL OR NOT ({' OR '.join(keep)})", params)
 
 
-def rebuild(conn, alias: str, since: int | None, now: int) -> dict:
-    """Recompute orders/fills/positions/position_meta from stored activity (idempotent, one transaction)."""
+def rebuild(conn, alias: str, since: int | None, now: int,
+            bot: tuple[set[tuple[str, str]], set[str]] | None = None) -> dict:
+    """Recompute orders/fills/positions/position_meta from stored activity (idempotent, one transaction).
+
+    `bot` = ((tx_hash, token_id) of every live fill, live conditions) of the polylab variants trading this same
+    wallet (red since 2026-10-10). Those TRADE rows are the bot's, not the owner's: they are left out of the manual
+    ledger by trade identity (never by token, so the owner's own bets on the same games stay), and so are REDEEMs
+    of bot conditions where the owner holds nothing."""
+    bot_trades, bot_conditions = bot or (set(), set())
     links = load_links(conn)
     marks = {r["token_id"]: dict(r) for r in conn.execute("SELECT * FROM api_positions")}
     acts = [dict(r) for r in conn.execute("SELECT * FROM activity WHERE ts >= ? ORDER BY ts, uid", (since or 0,))]
@@ -310,6 +317,8 @@ def rebuild(conn, alias: str, since: int | None, now: int) -> dict:
     bad_conditions: dict[str, str] = {}
     orphan_redeems: list[dict] = []
     unattributed = 0
+    bot_redeems: list[dict] = []
+    excluded = 0
 
     def pos(token_id, r):
         return state.setdefault(token_id, {"token_id": token_id, "condition_id": r.get("condition_id"),
@@ -317,6 +326,12 @@ def rebuild(conn, alias: str, since: int | None, now: int) -> dict:
                                            "title": r.get("title"), "buys": [], "sells": [], "redeems": []})
     for r in acts:
         t = r["type"]
+        if t == "TRADE" and (str(r.get("tx_hash") or "").lower(), r.get("token_id")) in bot_trades:
+            excluded += 1
+            continue
+        if t == "REDEEM" and r.get("condition_id") in bot_conditions:
+            bot_redeems.append(r)
+            continue
         if t == "TRADE" and r.get("token_id") and r.get("side") in ("BUY", "SELL"):
             p = pos(r["token_id"], r)
             p["buys" if r["side"] == "BUY" else "sells"].append(r)
@@ -329,6 +344,13 @@ def rebuild(conn, alias: str, since: int | None, now: int) -> dict:
                 orphan_redeems.append(r)
         elif t in CONDITION_EVENTS and r.get("condition_id"):
             bad_conditions.setdefault(r["condition_id"], t.lower())
+    for r in bot_redeems:             # the owner's own holding on a bot condition still gets its redeem
+        if r.get("token_id") and r["token_id"] in state:
+            state[r["token_id"]]["redeems"].append(r)
+        elif not r.get("token_id") and any(p["condition_id"] == r["condition_id"] for p in state.values()):
+            orphan_redeems.append(r)
+        else:
+            excluded += 1
     for r in orphan_redeems:          # some v2 REDEEM rows carry no token_id: attribute when unambiguous
         target = _redeem_target(state, r)
         if target is None:
@@ -351,6 +373,7 @@ def rebuild(conn, alias: str, since: int | None, now: int) -> dict:
             counts[meta["result"]] += 1
             _write_position(conn, position, meta, p, now)
         set_meta(conn, "unattributed_redeems", unattributed)   # tokenless REDEEM matching no held position
+        set_meta(conn, "bot_rows_excluded", excluded)
         # Accounts shared with old bots (e.g. red) keep only the owner's chosen market types in Track 2 scope.
         apply_market_filter(conn, [m for m in (get_meta(conn, "markets") or "").split(",") if m])
     return counts

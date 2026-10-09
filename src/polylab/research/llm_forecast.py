@@ -12,8 +12,11 @@ Design and pre-registered metrics: docs/research/llm-forecast-study.md. Once a d
 3. consensus (pre-registered, `compute_consensus`): only when both engines succeeded. Per game both forecast:
    P(0-0) = mean of the two engines' P(0-0); qualifies only if both engines ranked it in their own top-5; consensus
    rank = qualified games by that mean, lowest first. One engine failed → the batch's consensus is recorded `empty`.
-4. Slack: consensus top-3 with both AI probabilities, market implied P(0-0) = 1 - Over 0.5 ask, and the
-   llm-nil-consensus paper/live status.
+4. O/U 0.5 picks (2026-10-10 owner, `compute_ou05_picks`, frozen in `ou05_picks` by the same run): inside the
+   Europe top-5 + MLS pool, games both engines rank among their own lowest P(0-0) -> Over side, highest -> Under
+   side. ai-ou05-red rests fee-free maker bids on exactly these rows (docs/research/ai-ou05-study.md).
+5. Slack: consensus top-3 with both AI probabilities, market implied P(0-0) = 1 - Over 0.5 ask, the O/U 0.5
+   picks, and the variants' paper/live status.
 
 The research DB is append-only (SQLite triggers abort UPDATE/DELETE). core.db is only ever opened read-only.
 Which forecast counts for a game (eval and llm_nil share these rules): per engine, the forecast from the latest
@@ -49,8 +52,8 @@ SCHEMA_ID = "polylab.llm_forecast/v1"
 PROMPT_FILE = settings.REPO_ROOT / "prompts" / "llm_forecast.md"
 HORIZON_H = 30.0
 MIN_LEAD_MIN = 20              # games kicking off sooner than this are left out (AI run takes minutes)
-MAX_GAMES = 30                 # "all candidate games"; both engines run in parallel inside the 60-min Jenkins budget
-ENGINE_TIMEOUT_S = 1500
+MAX_GAMES = 40                 # "all candidate games"; both engines run in parallel inside the Jenkins budget
+ENGINE_TIMEOUT_S = 3000        # 2026-10-10: 11 games took ~9 min; a 40-game league weekend needs headroom
 MAX_SOURCES = 12
 MAX_FACTORS = 8
 TOP_N = 5                      # each engine's own ranked list (consensus qualification uses top-5)
@@ -59,6 +62,19 @@ ENGINE_LABEL = {"claude": "Claude", "codex": "ChatGPT"}
 CONSENSUS_RULE = {"aggregate": "mean_p00", "order": "lowest_p00_first", "qualify": "both_engines_top5",
                   "qualify_top": TOP_N, "picks": 3, "engines": list(ENGINES), "on_engine_failure": "empty"}
 CONSENSUS_VARIANT = "llm-nil-consensus"
+# 2026-10-10 owner decision `ai-ou05:red-live`: the O/U 0.5 study pool is Europe's top-5 leagues + MLS only. These
+# games are offered to the AIs first (select_games) so the game cap never trims them, and picks rank only among them.
+OU05_LEAGUES = ("epl", "lal", "bun", "sea", "fl1", "mls")
+OU05_VARIANT = "ai-ou05-red"
+OU05_RULE = {"pool": "OU05_LEAGUES games with a Total 0.5 market (both tokens) at forecast time, forecast by both "
+                     "engines, kickoff after the picks were made",
+             "leagues": list(OU05_LEAGUES), "qualify_top": 8, "aggregate": "mean_p00",
+             "engine_rank": "each engine's own P(0-0) inside the pool, ties by game_key",
+             "over": "both engines rank the game within their qualify_top LOWEST P(0-0) -> buy Over 0.5",
+             "under": "both engines rank the game within their qualify_top HIGHEST P(0-0) -> buy Under 0.5",
+             "overlap": "a game qualifying for both sides is dropped (small slates)",
+             "order": "over: mean P(0-0) asc; under: mean P(0-0) desc", "on_engine_failure": "empty",
+             "variant": OU05_VARIANT}
 CONFIDENCE = ("low", "medium", "high")
 KST = dt.timezone(dt.timedelta(hours=9))
 DISCLAIMER = "연구 기록이며 베팅 권유가 아님."
@@ -157,6 +173,49 @@ SCHEMA = (
     """,
     "CREATE INDEX IF NOT EXISTS consensus_game ON consensus(game_key, created_at)",
     """
+    CREATE TABLE IF NOT EXISTS ou05_pick_batches (
+        batch_id TEXT PRIMARY KEY,              -- same id as consensus_batches
+        ts INTEGER NOT NULL,
+        kst_date TEXT NOT NULL,
+        status TEXT NOT NULL,                   -- ok | empty (an engine failed / no pool)
+        rule_json TEXT NOT NULL,                -- OU05_RULE at the time (pre-registered)
+        n_pool INTEGER NOT NULL,
+        n_over INTEGER NOT NULL,
+        n_under INTEGER NOT NULL,
+        detail TEXT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS ou05_picks (
+        batch_id TEXT NOT NULL REFERENCES ou05_pick_batches(batch_id),
+        game_key TEXT NOT NULL,                 -- every pool game (side NULL = not picked: the ITT denominator)
+        league TEXT,
+        home_team TEXT,
+        away_team TEXT,
+        kickoff INTEGER NOT NULL,
+        condition_id TEXT NOT NULL,             -- Total 0.5 market
+        over_token TEXT NOT NULL,
+        under_token TEXT NOT NULL,
+        p00_claude REAL NOT NULL,
+        p00_codex REAL NOT NULL,
+        p00_mean REAL NOT NULL,
+        low_rank_claude INTEGER NOT NULL,       -- 1 = the engine's lowest P(0-0) in the pool
+        low_rank_codex INTEGER NOT NULL,
+        high_rank_claude INTEGER NOT NULL,      -- 1 = the engine's highest P(0-0) in the pool
+        high_rank_codex INTEGER NOT NULL,
+        side TEXT,                              -- over | under | NULL
+        pick_rank INTEGER,                      -- 1.. within the side
+        over_bid REAL,
+        over_ask REAL,
+        under_bid REAL,
+        under_ask REAL,
+        overround REAL,                         -- over_ask + under_ask - 1 at pick time (NULL = a side unquoted)
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (batch_id, game_key)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ou05_picks_game ON ou05_picks(game_key, created_at)",
+    """
     CREATE TABLE IF NOT EXISTS outcomes (
         game_key TEXT PRIMARY KEY,
         not_0_0 INTEGER NOT NULL,               -- 1 = at least one goal
@@ -170,7 +229,8 @@ SCHEMA = (
     """,
     *[f"CREATE TRIGGER IF NOT EXISTS {t}_no_{op.lower()} BEFORE {op} ON {t} "
       f"BEGIN SELECT RAISE(ABORT, '{t} is append-only'); END"
-      for t in ("runs", "forecasts", "outcomes", "consensus_batches", "consensus") for op in ("UPDATE", "DELETE")],
+      for t in ("runs", "forecasts", "outcomes", "consensus_batches", "consensus", "ou05_pick_batches", "ou05_picks")
+      for op in ("UPDATE", "DELETE")],
 )
 
 
@@ -262,6 +322,32 @@ def load_consensus_forecasts(path: Path, now: int | None = None) -> dict[str, di
                  "run_id": c["batch_id"]} for gk, c in cons.items()}
 
 
+def canonical_ou05_picks(conn: sqlite3.Connection | None, now: int | None = None) -> dict[str, dict]:
+    """game_key -> its row in the latest `ok` O/U 0.5 pick batch containing it, created before kickoff and at or
+    before now. A later batch that still has the game in its pool but no longer picks it (side NULL) wins, so a
+    resting entry for it is withdrawn; `empty` batches have no rows and revoke nothing."""
+    if conn is None:
+        return {}
+    now = int(now if now is not None else time.time())
+    try:
+        rows = conn.execute(
+            "SELECT p.* FROM ou05_picks p JOIN ou05_pick_batches b USING(batch_id) WHERE b.status='ok' "
+            "AND p.created_at <= ? AND p.created_at < p.kickoff ORDER BY p.game_key, p.created_at, p.batch_id",
+            (now,)).fetchall()
+    except sqlite3.OperationalError:       # research DB from before the pick tables (read-only open)
+        return {}
+    return {r["game_key"]: dict(r) for r in rows}
+
+
+def load_ou05_picks(path: Path, now: int | None = None) -> dict[str, dict]:
+    conn = connect_ro(path)
+    try:
+        return canonical_ou05_picks(conn, now)
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 # ---------------------------------------------------------------- game selection & prices
 
 @dataclass
@@ -273,25 +359,33 @@ class GameCtx:
     kickoff: int
     over_condition: str | None = None
     over_token: str | None = None
-    tokens: dict[str, str] | None = None      # role (over|draw|home|away) -> token_id
+    under_token: str | None = None
+    tokens: dict[str, str] | None = None      # role (over|under|draw|home|away) -> token_id
     volume: float = 0.0
 
 
 def over_token(view: MarketView, game_key: str) -> tuple[str, str] | None:
     """(condition_id, Over token) of the game's Total 0.5 goals market, if collected."""
+    ou = ou_tokens(view, game_key)
+    return (ou[0], ou[1]) if ou else None
+
+
+def ou_tokens(view: MarketView, game_key: str) -> tuple[str, str, str | None] | None:
+    """(condition_id, Over token, Under token or None) of the game's Total 0.5 goals market, if collected."""
     for m in view.markets(game_key, types=("total",)):
         if m.line is None or abs(m.line - 0.5) > 1e-9:
             continue
-        for t in m.tokens:
-            if t.side == "over" or (t.outcome_label or "").strip().lower() == "over":
-                return m.condition_id, t.token_id
+        sides = {(t.side or (t.outcome_label or "").strip().lower()): t.token_id for t in m.tokens}
+        if sides.get("over"):
+            return m.condition_id, sides["over"], sides.get("under")
     return None
 
 
 def select_games(view: MarketView, now: int, horizon_h: float = HORIZON_H, max_games: int = MAX_GAMES,
                  min_lead_min: int = MIN_LEAD_MIN) -> list[GameCtx]:
-    """Major-league soccer games kicking off in (now+lead, now+horizon]. Games with an Over 0.5 token come first,
-    then by result-market volume; the rest still get forecast with draw/moneyline prices as context."""
+    """Major-league soccer games kicking off in (now+lead, now+horizon]. The O/U 0.5 study leagues come first, then
+    games with an Over 0.5 token, then by result-market volume; the rest still get forecast with draw/moneyline
+    prices as context."""
     leagues = {x.lower() for x in MAJOR_SOCCER_LEAGUES}
     out = []
     for g in view.upcoming_games(now, horizon_h, ["soccer"]):
@@ -300,10 +394,12 @@ def select_games(view: MarketView, now: int, horizon_h: float = HORIZON_H, max_g
         if g.start_time - now < min_lead_min * 60:
             continue
         ctx = GameCtx(g.game_key, g.league, g.home_team, g.away_team, int(g.start_time), tokens={})
-        ov = over_token(view, g.game_key)
-        if ov:
-            ctx.over_condition, ctx.over_token = ov
-            ctx.tokens["over"] = ov[1]
+        ou = ou_tokens(view, g.game_key)
+        if ou:
+            ctx.over_condition, ctx.over_token, ctx.under_token = ou
+            ctx.tokens["over"] = ou[1]
+            if ou[2]:
+                ctx.tokens["under"] = ou[2]
         for m in view.markets(g.game_key, types=("moneyline", "draw")):
             ctx.volume += m.volume or 0.0
             for t in m.tokens:
@@ -312,7 +408,8 @@ def select_games(view: MarketView, now: int, horizon_h: float = HORIZON_H, max_g
         if not ctx.tokens:
             continue
         out.append(ctx)
-    out.sort(key=lambda c: (c.over_token is None, -c.volume, c.kickoff, c.game_key))
+    out.sort(key=lambda c: ((c.league or "").lower() not in OU05_LEAGUES, c.over_token is None, -c.volume, c.kickoff,
+                            c.game_key))
     return out[:max_games]
 
 
@@ -541,8 +638,10 @@ def run_forecast(paths, *, now: int | None = None, force: bool = False, engines:
                 _insert_run(rdb, f"{batch_id}-{n}", now, n, None, prompt_sha, None, 0, [], "failed", force,
                             {"reason": "no games"})
             _insert_consensus(rdb, batch_id, now, "empty", {}, [], force, {"reason": "no games"})
+            _insert_ou05(rdb, batch_id, now, "empty", [], {"reason": "no games"})
             return {"ok": True, "batch_id": batch_id, "games": 0, "forecasts": 0, "skipped": "no eligible games",
-                    "consensus": {"status": "empty", "reason": "no games", "picks": []}}
+                    "consensus": {"status": "empty", "reason": "no games", "picks": [],
+                                  "ou05": {"status": "empty", "reason": "no games", "over": [], "under": []}}}
         base = Path(paths.state) / "forecast" / stamp
         shas = {n: build_context(base / n, games, quotes, base_rates, now) for n in names}
         context_sha = shas[names[0]]
@@ -557,6 +656,7 @@ def run_forecast(paths, *, now: int | None = None, force: bool = False, engines:
                 stored[n] = _store_engine(rdb, results[n], games, quotes, f"{batch_id}-{n}", prompt_sha,
                                           context_sha, force, base / n)
             cons = _store_consensus(rdb, batch_id, stored, games, force, clock)
+            cons["ou05"] = _store_ou05(rdb, batch_id, stored, games, quotes, clock)
         except Exception as exc:     # an AI run must never vanish silently: log failed runs, then raise
             err = {"error": f"{type(exc).__name__}: {str(exc)[:300]}", "context_dir": str(base)}
             for n in names:
@@ -565,6 +665,8 @@ def run_forecast(paths, *, now: int | None = None, force: bool = False, engines:
                                 [], "failed", force, err)
             if not rdb.execute("SELECT 1 FROM consensus_batches WHERE batch_id=?", (batch_id,)).fetchone():
                 _insert_consensus(rdb, batch_id, int(clock()), "empty", {}, [], force, err)
+            if not rdb.execute("SELECT 1 FROM ou05_pick_batches WHERE batch_id=?", (batch_id,)).fetchone():
+                _insert_ou05(rdb, batch_id, int(clock()), "empty", [], err)
             raise
         ok_engines = [n for n in names if stored[n]["ok"]]
         return {"ok": bool(ok_engines), "batch_id": batch_id, "games": len(games),
@@ -658,6 +760,81 @@ def _store_consensus(rdb, batch_id: str, stored: dict[str, dict], games: list[Ga
     picks = [r for r in rows if r["consensus_rank"] and r["consensus_rank"] <= int(CONSENSUS_RULE["picks"])]
     return {"status": "ok", "n_games": len(rows), "n_qualified": sum(r["qualifies"] for r in rows),
             "picks": picks, "rows": rows}
+
+
+def compute_ou05_picks(claude_rows: list[dict], codex_rows: list[dict], games: dict[str, GameCtx], quotes: dict,
+                      created: int, rule: dict = OU05_RULE) -> list[dict]:
+    """Pre-registered O/U 0.5 picks (OU05_RULE, docs/research/ai-ou05-study.md). One row per pool game; side is
+    over / under / None. Engine ranks come from each engine's own P(0-0) within the pool."""
+    leagues = set(rule["leagues"])
+    top = int(rule["qualify_top"])
+    other = {r["game_key"]: r for r in codex_rows}
+    pool = []
+    for a in claude_rows:
+        b, g = other.get(a["game_key"]), games.get(a["game_key"])
+        if b is None or g is None or a["kickoff"] <= created or (g.league or "").lower() not in leagues:
+            continue
+        if not (g.over_condition and g.over_token and g.under_token):
+            continue
+        pool.append({"game_key": g.game_key, "pa": round(1 - a["ai_prob"], 6), "pb": round(1 - b["ai_prob"], 6),
+                     "g": g})
+
+    def ranks(key: str, high: bool) -> dict[str, int]:
+        order = sorted(pool, key=lambda r: ((-r[key] if high else r[key]), r["game_key"]))
+        return {r["game_key"]: i + 1 for i, r in enumerate(order)}
+    lo_a, lo_b, hi_a, hi_b = ranks("pa", False), ranks("pb", False), ranks("pa", True), ranks("pb", True)
+    out = []
+    for r in pool:
+        gk, g = r["game_key"], r["g"]
+        over = lo_a[gk] <= top and lo_b[gk] <= top
+        under = hi_a[gk] <= top and hi_b[gk] <= top
+        oq, uq = quotes.get(g.over_token) or {}, quotes.get(g.under_token) or {}
+        o_ask, u_ask = oq.get("ask"), uq.get("ask")
+        out.append({"game_key": gk, "league": g.league, "home_team": g.home_team, "away_team": g.away_team,
+                    "kickoff": g.kickoff, "condition_id": g.over_condition, "over_token": g.over_token,
+                    "under_token": g.under_token, "p00_claude": r["pa"], "p00_codex": r["pb"],
+                    "p00_mean": round((r["pa"] + r["pb"]) / 2, 6), "low_rank_claude": lo_a[gk],
+                    "low_rank_codex": lo_b[gk], "high_rank_claude": hi_a[gk], "high_rank_codex": hi_b[gk],
+                    "side": None if over == under else ("over" if over else "under"), "pick_rank": None,
+                    "over_bid": oq.get("bid"), "over_ask": o_ask, "under_bid": uq.get("bid"), "under_ask": u_ask,
+                    "overround": round(o_ask + u_ask - 1, 6) if o_ask is not None and u_ask is not None else None,
+                    "created_at": created})
+    for side, sign in (("over", 1), ("under", -1)):
+        rank_key = "low_rank" if side == "over" else "high_rank"
+        q = sorted((r for r in out if r["side"] == side),
+                   key=lambda r: (sign * r["p00_mean"], max(r[f"{rank_key}_claude"], r[f"{rank_key}_codex"]),
+                                  r["kickoff"], r["game_key"]))
+        for i, r in enumerate(q):
+            r["pick_rank"] = i + 1
+    return sorted(out, key=lambda r: (r["side"] is None, r["side"] or "", r["pick_rank"] or 0, r["game_key"]))
+
+
+def _store_ou05(rdb, batch_id: str, stored: dict[str, dict], games: list[GameCtx], quotes: dict,
+                clock: Callable[[], float]) -> dict:
+    created = int(clock())
+    failed = [n for n in ENGINES if not (stored.get(n) or {}).get("ok")]
+    if failed:
+        reason = "; ".join(f"{ENGINE_LABEL.get(n, n)} 실패" for n in failed)
+        _insert_ou05(rdb, batch_id, created, "empty", [], {"reason": reason})
+        return {"status": "empty", "reason": reason, "over": [], "under": []}
+    rows = compute_ou05_picks(stored["claude"]["rows"], stored["codex"]["rows"], {g.game_key: g for g in games},
+                              quotes, created)
+    _insert_ou05(rdb, batch_id, created, "ok", rows, {})
+    return {"status": "ok", "n_pool": len(rows), "over": [r for r in rows if r["side"] == "over"],
+            "under": [r for r in rows if r["side"] == "under"]}
+
+
+def _insert_ou05(conn, batch_id, ts, status, rows, detail):
+    with conn:
+        conn.execute("INSERT INTO ou05_pick_batches(batch_id, ts, kst_date, status, rule_json, n_pool, n_over, "
+                     "n_under, detail) VALUES(?,?,?,?,?,?,?,?,?)",
+                     (batch_id, ts, kst_date(ts), status, json.dumps(OU05_RULE, sort_keys=True, ensure_ascii=False),
+                      len(rows), sum(r["side"] == "over" for r in rows), sum(r["side"] == "under" for r in rows),
+                      json.dumps(detail, ensure_ascii=False, default=str)))
+        for r in rows:
+            cols = ["batch_id", *r]
+            conn.execute(f"INSERT INTO ou05_picks({','.join(cols)}) VALUES({','.join('?' * len(cols))})",
+                         [batch_id, *r.values()])
 
 
 def _insert_consensus(conn, batch_id, ts, status, stored, rows, forced, detail):
@@ -779,10 +956,39 @@ def slack_text(result: dict, status: str | None = None, now: int | None = None) 
                          f"({(r['league'] or '').upper()}, {kst(r['kickoff'])} KST) P(0:0) Claude "
                          f"{_pct(r['p00_claude'])} · ChatGPT {_pct(r['p00_codex'])} · 합의 {_pct(r['p00_consensus'])}"
                          f" · {mtxt}")
+    lines += ou05_slack_lines(cons.get("ou05") or {})
     mode = {"live": "실거래(live)", "paper": "paper(가상)", "off": "꺼짐"}.get(status, "미등록")
     lines.append(f"{CONSENSUS_VARIANT}: {mode} · 대조군 llm-nil-draw(Claude 단독): paper · 기준선 goal-over-all")
     lines.append(DISCLAIMER)
     return "\n".join(lines)
+
+
+def ou05_slack_lines(ou: dict, status: str | None = None) -> list[str]:
+    """O/U 0.5 picks section: what ai-ou05-red will rest fee-free bids on (overround gate applies at order time)."""
+    if not ou:
+        return []
+    mode = {"live": "실거래(live)", "paper": "paper(가상)", "off": "꺼짐"}.get(
+        status or variant_mode(OU05_VARIANT), "미등록")
+    head = f"O/U 0.5 픽 (유럽 5대 리그+MLS, 두 AI 모두 각자 상위 {OU05_RULE['qualify_top']}위) → {OU05_VARIANT} {mode}"
+    if ou.get("status") != "ok":
+        return [f"{head}: 없음 — {str(ou.get('reason') or '')[:150]}"]
+    lines = [f"{head}: 대상 {ou.get('n_pool', 0)}경기 · Over {len(ou.get('over') or [])} · Under {len(ou.get('under') or [])}"]
+    for side, label in (("over", "Over(0:0 아님)"), ("under", "Under(0:0)")):
+        for r in ou.get(side) or []:
+            ovr = r.get("overround")
+            lines.append(f"  {label} {r['pick_rank']}. {r['home_team']} vs {r['away_team']} "
+                         f"({(r['league'] or '').upper()}, {kst(r['kickoff'])} KST) P(0:0) Claude {_pct(r['p00_claude'])}"
+                         f" · ChatGPT {_pct(r['p00_codex'])} · 호가 합 "
+                         f"{'–' if ovr is None else f'{1 + ovr:.3f}'}")
+    return lines
+
+
+def variant_mode(variant_id: str, registry_dir: Path | None = None) -> str:
+    try:
+        from polylab.registry import REGISTRY_DIR, load_variant  # noqa: PLC0415
+        return load_variant((registry_dir or REGISTRY_DIR) / f"{variant_id}.yaml").mode
+    except Exception:
+        return "absent"
 
 
 # ---------------------------------------------------------------- CLI

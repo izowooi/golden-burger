@@ -58,6 +58,14 @@ OWNER_FIXED_PARAMS: dict[str, frozenset[str]] = {
     "goal-over-all": frozenset({"stop_loss_pct", "hold_above_price", "stop_loss_price"}),
 }
 
+# Pre-registered research variants the owner fixed entirely (reports/decisions.md): no params/stake/mode/retire
+# change from the AI, the inbox or the ladder. Their own rules hold until the owner edits the yaml; KILL is the stop.
+OWNER_LOCKED: dict[str, str] = {
+    # 2026-10-10 `ai-ou05:red-live`: red, live, 5 USDC, maker only, no stop; a single 0:0 costs ~30 Over wins, so
+    # the ladder's floor->paper rule would end the sample the study needs.
+    "ai-ou05-red": "2026-10-10 ai-ou05:red-live",
+}
+
 # Variants the owner kept off the AI-direct live path (reports/decisions.md). The deterministic promotion gate
 # (>= 30 out-of-sample paper trades with an 80% lower bound > 0) may still promote them.
 OWNER_NO_DIRECT_LIVE: dict[str, str] = {
@@ -408,6 +416,8 @@ def _validate_one(ch: dict, ctx: Context, rules: Rules, source: str, state: dict
     v = ctx.variants.get(vid)
     if v is None:
         raise Reject(f"unknown variant {vid}")
+    if vid in OWNER_LOCKED:
+        raise Reject(f"{vid} is owner-locked ({OWNER_LOCKED[vid]}): propose via attention instead")
     if sport is not None and sport not in v.sports:
         raise Reject(f"variant {vid} does not cover {sport}")
     if sport is not None and kind in ("stake", "mode") and not v.per_sport:

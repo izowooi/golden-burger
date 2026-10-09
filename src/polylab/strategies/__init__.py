@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from polylab.strategies.ai_ou05 import AiOu05
 from polylab.strategies.apricot import Apricot
 from polylab.strategies.base import Strategy
 from polylab.strategies.cherry import Cherry
@@ -19,6 +20,7 @@ FAMILIES: dict[str, type[Strategy]] = {
     "llm_nil": LlmNil,
     "goal_over": GoalOver,
     "late_leader": LateLeader,
+    "ai_ou05": AiOu05,
 }
 
 

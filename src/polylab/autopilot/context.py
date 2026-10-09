@@ -14,7 +14,7 @@ from pathlib import Path
 
 from polylab import settings
 from polylab.analysis import integrations
-from polylab.autopilot.validator import OWNER_FIXED_PARAMS, SCHEMA, Rules, get_path
+from polylab.autopilot.validator import OWNER_FIXED_PARAMS, OWNER_LOCKED, SCHEMA, Rules, get_path
 from polylab.registry import MAX_STAKE_USDC, STAKE_LADDER
 from polylab.reports.slack import scrub
 
@@ -143,7 +143,9 @@ def build_private(report: dict, markdown: str, kind: str, paths, variants, rules
               # params changes these variants may get without min_trades_params live trades, if the retro's own
               # backtest (current vs proposed, two halves) passes; values in owner_fixed_params are never tunable
               "backtest_retune_eligible": list(retune_eligible or []),
-              "owner_fixed_params": {k: sorted(v) for k, v in OWNER_FIXED_PARAMS.items()}}
+              "owner_fixed_params": {k: sorted(v) for k, v in OWNER_FIXED_PARAMS.items()},
+              # no change of any kind (params/stake/mode/retire); comment via attention only
+              "owner_locked_variants": dict(OWNER_LOCKED)}
     (d / "bounds.json").write_text(_dump(bounds))
     bt = backtests(report, by_id, paths, kind) if run_backtests else {"available": False, "results": []}
     (d / "backtests.json").write_text(_dump(bt))

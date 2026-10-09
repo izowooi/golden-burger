@@ -201,6 +201,37 @@ def refresh_links(conn, paths, client: Client, now: int, network: bool = True) -
 
 # ------------------------------------------------------------------ per account
 
+def bot_activity(paths, alias: str, variants=None) -> tuple[set[tuple[str, str]], set[str]]:
+    """((tx_hash, token_id) of every live fill, live condition_ids) in the strategy ledgers of the polylab variants
+    whose account is this watch alias. Raises when the registry cannot be read: without it the bot's trades would
+    be counted as the owner's manual bets."""
+    import json  # noqa: PLC0415
+    import sqlite3  # noqa: PLC0415
+
+    from polylab import registry  # noqa: PLC0415
+    variants = registry.load_all(include_off=True) if variants is None else variants
+    trades: set[tuple[str, str]] = set()
+    conditions: set[str] = set()
+    for v in variants:
+        path = paths.strategy_db(v.id)
+        if v.account != alias or not path.exists():
+            continue
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)
+        try:
+            for token, raw in conn.execute("SELECT o.token_id, f.raw FROM fills f JOIN orders o USING(intent_id) "
+                                           "WHERE o.mode='live' AND f.raw IS NOT NULL"):
+                try:
+                    tx = (json.loads(raw) or {}).get("transaction_hash")
+                except (TypeError, ValueError):
+                    tx = None
+                if tx:
+                    trades.add((str(tx).lower(), token))
+            conditions |= {r[0] for r in conn.execute("SELECT DISTINCT condition_id FROM positions WHERE mode='live'")}
+        finally:
+            conn.close()
+    return trades, conditions
+
+
 def sync_account(acct: settings.WatchAccount, paths, client: Client | None = None, now: int | None = None,
                  since: int | None = None, full: bool = False) -> dict:
     client = client or default_client()
@@ -222,9 +253,10 @@ def sync_account(acct: settings.WatchAccount, paths, client: Client | None = Non
         conn.commit()
         ledger.store_api_positions(conn, fetch_positions(acct.address, client), now)
         conn.commit()
-        ledger.rebuild(conn, acct.alias, since, now)        # first pass: know which positions are still open
+        bot = bot_activity(paths, acct.alias)
+        ledger.rebuild(conn, acct.alias, since, now, bot)   # first pass: know which positions are still open
         links = refresh_links(conn, paths, client, now)
-        counts = ledger.rebuild(conn, acct.alias, since, now)
+        counts = ledger.rebuild(conn, acct.alias, since, now, bot)
         ledger.set_meta(conn, "last_sync_at", now)
         conn.commit()
         return {"alias": acct.alias, "fetched": len(rows), "new": new, "links": links, "positions": counts}

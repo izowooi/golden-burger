@@ -43,9 +43,9 @@ from polylab.analysis.integrations import sport_of_params as integrations_sport
 from polylab.autopilot import context as ctxpack
 from polylab.autopilot import attention, gitops, monthly
 from polylab.autopilot.runner import Engine, default_chain
-from polylab.autopilot.validator import (PROMOTION_SOURCE, SCHEMA, Context, Decision, Facts, Rules, apply_to_variant,
-                                        backtest_candidates, evidence_key, live_candidates, promotion_key, set_path,
-                                        validate)
+from polylab.autopilot.validator import (OWNER_LOCKED, PROMOTION_SOURCE, SCHEMA, Context, Decision, Facts, Rules,
+                                        apply_to_variant, backtest_candidates, evidence_key, live_candidates,
+                                        promotion_key, set_path, validate)
 from polylab.registry import STAKE_LADDER
 from polylab.reports import build as report_build
 from polylab.reports import brief as brief_mod
@@ -237,6 +237,8 @@ def ladder_changes(report: dict) -> dict:
     """Deterministic ladder moves from polylab.risk.ladder (no AI involved)."""
     changes = []
     for v in report["variants"]:
+        if v["id"] in OWNER_LOCKED:   # owner-fixed research variant: the ladder never moves it
+            continue
         if v.get("per_sport"):   # one ladder per (variant, sport)
             rows = [(d["ladder"] or {}, d["mode"], d["sport"]) for d in v.get("sports_detail") or []]
         else:

@@ -113,7 +113,7 @@ def test_reminders_activate_by_date_and_account():
                "areas": {"core": {"gb_30d": 1.6, "steady_days": 7}, "raw": {"gb_30d": 0.8, "steady_days": 6}}}
     report = {"health": {"storage": storage},
               "variants": [{"id": "late-leader-paper", "account": None, "mode": "paper"}]}
-    ids = {r["id"] for r in reminders.due(report, before)}
+    ids = {r["id"] for r in reminders.due(report, before)} - {"question:ai-ou05-chatgpt-web", "question:ai-ou05-leagues"}
     assert ids == {"account:late-leader-paper"}
     due = {r["id"]: r for r in reminders.due(report, on)}
     st = due["reminder:storage-7d-steady-state"]

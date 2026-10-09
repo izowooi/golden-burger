@@ -15,7 +15,7 @@ export function exitLabel(reason: string | null | undefined) {
 }
 
 /** Families that belong to the 0:0-avoidance study's automated track (docs/research/llm-forecast-study.md). */
-const TRACK1_FAMILIES = new Set(["goal_over", "llm_nil"]);
+const TRACK1_FAMILIES = new Set(["goal_over", "llm_nil", "ai_ou05"]);
 
 export function isTrack1(family: string | null | undefined) {
   return !!family && TRACK1_FAMILIES.has(family);
@@ -34,6 +34,8 @@ export function exitRuleSummary(params: Record<string, unknown> | null | undefin
   if (tp !== null) parts.push(`익절 +${pctText(tp)}`);
   if (sl !== null) parts.push(`손절 −${pctText(Math.abs(sl))}`);
   if (hold !== null) parts.push(`${hold} 이상 보유`);
+  const ovr = n("max_overround");
+  if (!parts.length && ovr !== null) return `지정가만 · 호가 합 ≤ ${(1 + ovr).toFixed(2)} · 손절·익절 없음(정산 보유)`;
   return parts.length ? parts.join(" · ") : null;
 }
 
