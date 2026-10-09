@@ -2,7 +2,7 @@ id: llm-nil-consensus
 family: llm_nil
 hypothesis: "Claude 와 ChatGPT 가 독립적으로 매긴 P(0:0) 의 사전 등록 합의(두 AI 모두 top-5, 평균 P(0:0) 낮은 순 top-3)가 시장보다 0:0 을 낮게 볼 때(시장 내재 P(0:0)=1−Over ask, 차이 ≥ edge) Over 0.5 를 킥오프 직전 매수해 정산까지 보유하면 수익이 나는가. 대조군 llm-nil-draw(Claude 단독, paper), 기준선 goal-over-all. 설계 docs/research/llm-forecast-study.md."
 account: null
-mode: paper
+mode: 'off'
 sports: [soccer]
 stake_usdc: 5
 params:
@@ -26,4 +26,4 @@ bounds:
   stop_loss_price: [0.2, 0.8, 0.05]
   max_stop_spread: [0.03, 0.2, 0.02]
 limits: {max_positions: 6, max_open_usdc: 30, daily_loss_stop_usdc: 15, max_new_per_cycle: 3, max_sells_per_cycle: 3}
-notes: "2026-10-03 thesis owner 결정(track 1): 이 변형은 live 허용 대상이다(llm_nil family 의 live 거부 가드는 id llm-nil-consensus + source consensus 에만 풀림, llm-nil-draw 는 계속 paper 전용). 자금 있는 계좌가 지정될 때까지 paper. live 전환은 한 줄 변경(mode: live + account: <alias>)이며 사람만 한다(autopilot 은 live 로 올릴 수 없다). 합의가 비는 날(한 엔진 실패)은 진입하지 않는다. 예측은 Jenkins polylab-llm-forecast(10:00 KST)."
+notes: "2026-10-03 thesis owner 결정(track 1): 이 변형은 live 허용 대상이다(llm_nil family 의 live 거부 가드는 id llm-nil-consensus + source consensus 에만 풀림, llm-nil-draw 는 계속 paper 전용). 자금 있는 계좌가 지정될 때까지 paper. live 전환은 한 줄 변경(mode: live + account: <alias>)이며 사람만 한다(autopilot 은 live 로 올릴 수 없다). 합의가 비는 날(한 엔진 실패)은 진입하지 않는다. 예측은 Jenkins polylab-llm-forecast(10:00 KST). 2026-10-10 연구자 결정 `ai-ou05:absorb-llm-nil`: 이 연구는 ai-ou05 연구(docs/research/ai-ou05-study.md)로 흡수되어 off. 예측·합의 기록(research/llm_forecasts.db)은 그대로 쌓이고 AI vs 시장 채점(polylab forecast eval)에 쓰인다."
