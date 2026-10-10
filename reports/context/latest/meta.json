@@ -1,11 +1,11 @@
 {
- "generated_at": "2026-10-10T18:31:04Z",
- "git_commit": "ea1d2b1",
+ "generated_at": "2026-10-10T23:01:02Z",
+ "git_commit": "9775139",
  "kind": "daily",
- "slot": "dawn",
- "name": "2026-10-11-dawn",
+ "slot": "morning",
+ "name": "2026-10-11-morning",
  "proposal_schema": "polylab.proposal/v1",
  "engine": "claude",
  "ai": true,
- "applied": 1
+ "applied": 0
 }

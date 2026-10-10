@@ -1,6 +1,6 @@
 # polylab 확인·결정 목록 (attention inbox)
 
-갱신 2026-10-11 03:31 KST · 열린 항목 38건 (긴급 0 · 경고 2 · 결정 필요 11 · 참고 25)
+갱신 2026-10-11 08:01 KST · 열린 항목 39건 (긴급 0 · 경고 3 · 결정 필요 11 · 참고 25)
 
 매 회고(일일 3회·주간·월간)가 자동으로 갱신한다. **자동 규칙** 항목은 조건이 풀리면 스스로 '최근 해결'로 옮겨지고, **AI 판단** 항목은 7일 동안 다시 나오지 않으면 만료된다. 근거 경로는 이 저장소 기준이며, `metrics/…` 같은 경로는 AI context pack(공개 사본 `reports/context/latest/`)을 가리킨다.
 
@@ -10,45 +10,52 @@
 
 ### [경고] 수동 베팅 누적 실현 -3,666.45 USDC: bankroll의 -36.7% (수동 AI 베팅 (red, 메인))
 
-- 위험 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-11 03:31 KST · id `manual_drawdown:red`
-- 근거: `reports/daily/2026-10-11-dawn.md`
+- 위험 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-11 08:01 KST · id `manual_drawdown:red`
+- 근거: `reports/daily/2026-10-11-morning.md`
 
 계좌 수동 AI 베팅 (red, 메인) 실현손익이 처음 기록된 bankroll 10,000.00 USDC의 −10% 아래로 내려갔다. 베팅 금액·선택 기준 점검 권장.
 
-### [경고] goal-over-all 자동 변경: mode live→paper
+### [경고] goal-over-all 단위 모드 변경: 5→5 USDC, 모드 live→paper
 
-- 시스템 변경 · 자동 규칙 · 최초 10-11 03:31 · 갱신 10-11 03:31 KST · id `stake:goal-over-all:1791657064`
+- 시스템 변경 · 자동 규칙 · 최초 10-11 03:31 · 갱신 10-11 08:01 KST · id `stake:goal-over-all:1791657064`
 - 근거: `strategies/goal-over-all.yaml`
 
-10-11 03:31 KST 적용(ladder). 사유: ladder: 43 trades at floor with cumulative loss. 증액은 2026-10-06 연구자 결정(stake:freeze-5)으로 동결(모든 변형 5 USDC), 감액·paper 전환은 손실이나 표본 규칙으로 자동 적용된다.
+10-11 03:31 KST 자동 적용. 사유: paper: 43 trades at floor with cumulative loss. 증액은 2026-10-06 연구자 결정(stake:freeze-5)으로 동결(모든 변형 5 USDC), 감액·paper 전환은 손실이나 표본 규칙으로 자동 적용된다.
+
+### [경고] 데이터 품질 이벤트 live_gap 349건 (24시간)
+
+- 데이터 품질 · 자동 규칙 · 최초 10-01 09:00 · 갱신 10-11 08:01 KST · id `quality:live_gap`
+- 근거: `reports/daily/2026-10-11-morning.md`
+
+라이브 경기 중 1분 가격 bar 공백. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.
 
 ### [결정 필요] late-leader-paper 실거래용 계좌가 필요합니다
 
-- 결정 · 자동 규칙 · 최초 10-07 03:30 · 갱신 10-11 03:31 KST · id `account:late-leader-paper`
-- 근거: `reports/daily/2026-10-11-dawn.md`
+- 결정 · 자동 규칙 · 최초 10-07 03:30 · 갱신 10-11 08:01 KST · id `account:late-leader-paper`
+- 근거: `reports/daily/2026-10-11-morning.md`
 
 막판 선두 수렴 가설(late_leader)은 계좌 없이 paper 로만 돈다. 2026-10-06 확인: 자금이 있는 여유 계좌가 없다(bear·fox·wolf·eagle·orange 현금 0, yellow 현금 0, red 는 수동 트랙). 실거래를 원하면 계좌 하나에 USDC 를 넣고 별칭을 알려 주세요(다음 작업에서 yaml 에 연결). 그 뒤에도 live 는 게이트를 통과한 종목만 5 USDC 다: 지금 후보는 NFL 하나, NHL 은 현재 재생 규칙(n ≥ 40)에 닿지 않아 창 결정이 필요하다. 근거 docs/research/hypothesis-late-leader-convergence.md
 
-### [결정 필요] paper 변형 watermelon-cat 표본 71건 도달: live 전환 결정 필요
+### [결정 필요] paper 변형 watermelon-cat 표본 82건 도달: live 전환 결정 필요
 
-- 결정 · 자동 규칙 · 최초 10-07 19:30 · 갱신 10-11 03:31 KST · id `paper_ready:watermelon-cat`
+- 결정 · 자동 규칙 · 최초 10-07 19:30 · 갱신 10-11 08:01 KST · id `paper_ready:watermelon-cat`
 - 근거: `strategies/watermelon-cat.yaml`
 
-paper 정산 71건, 승률 95.8%, ROI -0.2%(paper 원장). live 전환: 종목별 변형은 결정론 승격 게이트가 자동으로, 또는 AI 회고가 제안하면 retro 가 직접 돌린 재생(종목별 최소 건수·전체와 두 반기 ROI ≥ 0)과 paper 표본(유의하게 음수가 아님)이 통과할 때만 (변형, 종목)을 5 USDC 로 전환한다(2026-10-06 promotion:ai-direct). 연구자가 yaml 로 직접 바꿀 수도 있다. 아니면 그대로 두거나 retire 한다.
+paper 정산 82건, 승률 93.9%, ROI -1.1%(paper 원장). live 전환: 종목별 변형은 결정론 승격 게이트가 자동으로, 또는 AI 회고가 제안하면 retro 가 직접 돌린 재생(종목별 최소 건수·전체와 두 반기 ROI ≥ 0)과 paper 표본(유의하게 음수가 아님)이 통과할 때만 (변형, 종목)을 5 USDC 로 전환한다(2026-10-06 promotion:ai-direct). 연구자가 yaml 로 직접 바꿀 수도 있다. 아니면 그대로 두거나 retire 한다.
 
-### [결정 필요] paper 변형 watermelon-dog 표본 71건 도달: live 전환 결정 필요
+### [결정 필요] paper 변형 watermelon-dog 표본 83건 도달: live 전환 결정 필요
 
-- 결정 · 자동 규칙 · 최초 10-07 19:30 · 갱신 10-11 03:31 KST · id `paper_ready:watermelon-dog`
+- 결정 · 자동 규칙 · 최초 10-07 19:30 · 갱신 10-11 08:01 KST · id `paper_ready:watermelon-dog`
 - 근거: `strategies/watermelon-dog.yaml`
 
-paper 정산 71건, 승률 94.4%, ROI -1.0%(paper 원장). live 전환: 종목별 변형은 결정론 승격 게이트가 자동으로, 또는 AI 회고가 제안하면 retro 가 직접 돌린 재생(종목별 최소 건수·전체와 두 반기 ROI ≥ 0)과 paper 표본(유의하게 음수가 아님)이 통과할 때만 (변형, 종목)을 5 USDC 로 전환한다(2026-10-06 promotion:ai-direct). 연구자가 yaml 로 직접 바꿀 수도 있다. 아니면 그대로 두거나 retire 한다.
+paper 정산 83건, 승률 92.8%, ROI -1.8%(paper 원장). live 전환: 종목별 변형은 결정론 승격 게이트가 자동으로, 또는 AI 회고가 제안하면 retro 가 직접 돌린 재생(종목별 최소 건수·전체와 두 반기 ROI ≥ 0)과 paper 표본(유의하게 음수가 아님)이 통과할 때만 (변형, 종목)을 5 USDC 로 전환한다(2026-10-06 promotion:ai-direct). 연구자가 yaml 로 직접 바꿀 수도 있다. 아니면 그대로 두거나 retire 한다.
 
-### [결정 필요] cherry-tiger 3일 이상 진입 0건 (대상 경기 23개 있었음)
+### [결정 필요] cherry-tiger 3일 이상 진입 0건 (대상 경기 29개 있었음)
 
-- 결정 · 자동 규칙 · 최초 10-07 08:00 · 갱신 10-11 03:31 KST · id `dead_variant:cherry-tiger`
+- 결정 · 자동 규칙 · 최초 10-07 08:00 · 갱신 10-11 08:01 KST · id `dead_variant:cherry-tiger`
 - 근거: `strategies/cherry-tiger.yaml`
 
-마지막 진입 10-04 03:49 KST. 같은 기간 대상 종목(soccer) 경기는 23개였다. 진입 조건이 지나치게 엄격하거나 버그일 수 있다. AI 회고가 백테스트 근거로 조건을 다시 맞추거나(retro 가 직접 재생해 검증), 폐기(retire) 여부를 판단해야 한다.
+마지막 진입 10-04 03:49 KST. 같은 기간 대상 종목(soccer) 경기는 29개였다. 진입 조건이 지나치게 엄격하거나 버그일 수 있다. AI 회고가 백테스트 근거로 조건을 다시 맞추거나(retro 가 직접 재생해 검증), 폐기(retire) 여부를 판단해야 한다.
 
 ### [결정 필요] paper 변형 cherry-blue 표본 30건 도달: live 전환 결정 필요
 
@@ -99,26 +106,40 @@ late-leader-paper NFL(T=170분, Y=0.88, Z=0.98)이 엔진 재생에서 통과 �
 
 오늘 Malta/Andorra(진입 0.88 → stop 0.79, −0.59 USDC), Kosovo/Austria(0.94 → 0.84, −0.59 USDC), Azerbaijan/Lithuania(0.88 → 0.79, −0.59 USDC) 3건 stop_loss 발동. 세 경기 모두 watermelon-cat이 88.15분·93.05분·92.73분에 take_profit 달성해 최종 득점 확인. 이전 Belarus/San Marino(진입 0.968 → 0.832, −0.75 USDC)도 동일 패턴이었음. 누적 7건 중 4건 stop_loss, 최소 3건이 방향 옳은 경기에서 프리게임 가격 하락으로 발동됐다. allow_in_play=false 전략에서 stop_loss_pct=10%는 킥오프 전 시장 변동(−10%)으로 조기 청산 후 경기 자체를 놓치게 만드는 구조다. stop_loss_pct 확대 또는 프리게임 구간 비활성화 여부를 결정해 주시기 바랍니다. 이 파라미터는…
 
-### [참고] 데이터 품질 이벤트 live_gap 241건 (24시간)
+### [참고] 데이터 품질 이벤트 missing_book 288건 (24시간)
 
-- 데이터 품질 · 자동 규칙 · 최초 10-01 09:00 · 갱신 10-11 03:31 KST · id `quality:live_gap`
-- 근거: `reports/daily/2026-10-11-dawn.md`
-
-라이브 경기 중 1분 가격 bar 공백. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.
-
-### [참고] 데이터 품질 이벤트 missing_book 286건 (24시간)
-
-- 데이터 품질 · 자동 규칙 · 최초 10-08 19:31 · 갱신 10-11 03:31 KST · id `quality:missing_book`
-- 근거: `reports/daily/2026-10-11-dawn.md`
+- 데이터 품질 · 자동 규칙 · 최초 10-08 19:31 · 갱신 10-11 08:01 KST · id `quality:missing_book`
+- 근거: `reports/daily/2026-10-11-morning.md`
 
 missing_book. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.
 
-### [참고] 데이터 품질 이벤트 live_history_mismatch 125건 (24시간)
+### [참고] 데이터 품질 이벤트 live_history_mismatch 186건 (24시간)
 
-- 데이터 품질 · 자동 규칙 · 최초 10-10 08:01 · 갱신 10-11 03:31 KST · id `quality:live_history_mismatch`
-- 근거: `reports/daily/2026-10-11-dawn.md`
+- 데이터 품질 · 자동 규칙 · 최초 10-10 08:01 · 갱신 10-11 08:01 KST · id `quality:live_history_mismatch`
+- 근거: `reports/daily/2026-10-11-morning.md`
 
 라이브 가격과 history 가격 5c 이상 불일치. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.
+
+### [참고] paper 변형 lts-queen 증거 수집 중 (1/20건)
+
+- 시스템 변경 · 자동 규칙 · 최초 10-11 03:31 · 갱신 10-11 08:01 KST · id `paper:lts-queen`
+- 근거: `strategies/lts-queen.yaml`
+
+가설: LTS arm B(이르게): 경기 진행 60–70% 뒤 선두 가격이 임계값 Y 에 들어오면 매수호가 한 틱 아래 지정가(수수료 0)로 사서 정산까지 보유한다. 종목별 (T, Y, 대기) 는 2026-10-10 사전 등록 grid 에서 H1 데이터만으로 고른 칸. 근거 docs/research/hypothesis-lts.md.. paper 정산 1건, ROI 1.2%(paper 원장, 실손익 아님). live 전환: 종목별 변형은 결정론 승격 게이트가 자동으로, 또는 AI 회고가 제안하면 retro 가 직접 돌린 재생(종목별 최소 건수·전체와 두 반기 ROI ≥ 0)과 paper 표본(유의하게 음수가 아님)이 통과할 때만 (변형, 종목)을 5 USDC 로 전환한다(2026-10-06 promotion:ai-direct). 연구자가 yaml 로 직접 바꿀 수도 있다.
+
+### [참고] 데이터 품질 이벤트 stale_book 148건 (24시간)
+
+- 데이터 품질 · 자동 규칙 · 최초 10-11 08:01 · 갱신 10-11 08:01 KST · id `quality:stale_book`
+- 근거: `reports/daily/2026-10-11-morning.md`
+
+stale_book. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.
+
+### [참고] paper 변형 goal-over-all 증거 수집 중 (2/20건)
+
+- 시스템 변경 · 자동 규칙 · 최초 10-11 08:01 · 갱신 10-11 08:01 KST · id `paper:goal-over-all`
+- 근거: `strategies/goal-over-all.yaml`
+
+가설: 기준선(buy-everything): 주요 리그 축구 전 경기의 Total 0.5 Over('한 골이라도 나온다')를 킥오프 3일(4320분)→5분 전 실행가(전체 호가 walk) 0.50–0.985 이면 기계적으로 매수해 정산까지 보유하면 수수료 후 손익이 0 근처인가(시장 효율성). AI 선별(llm-nil-draw·llm-nil-consensus)이…. paper 정산 2건, ROI 3.5%(paper 원장, 실손익 아님). live 전환: 종목별 변형은 결정론 승격 게이트가 자동으로, 또는 AI 회고가 제안하면 retro 가 직접 돌린 재생(종목별 최소 건수·전체와 두 반기 ROI ≥ 0)과 paper 표본(유의하게 음수가 아님)이 통과할 때만 (변형, 종목)을 5 USDC 로 전환한다(2026-10-06 promotion:ai-direct). 연구자가 yaml 로 직접 바꿀 수도 있다.
 
 ### [참고] paper 변형 lts-king 증거 수집 중 (0/20건)
 
@@ -126,13 +147,6 @@ missing_book. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로
 - 근거: `strategies/lts-king.yaml`
 
 가설: LTS arm A(늦게): 경기 진행 80–90% 뒤 선두 가격이 임계값 Y 에 들어오면 매수호가 한 틱 아래 지정가(수수료 0)로 사서 정산까지 보유한다. 종목별 (T, Y, 대기) 는 2026-10-10 사전 등록 grid 에서 H1 데이터만으로 고른 칸. 근거 docs/research/hypothesis-lts.md.. paper 정산 0건, ROI –(paper 원장, 실손익 아님). live 전환: 종목별 변형은 결정론 승격 게이트가 자동으로, 또는 AI 회고가 제안하면 retro 가 직접 돌린 재생(종목별 최소 건수·전체와 두 반기 ROI ≥ 0)과 paper 표본(유의하게 음수가 아님)이 통과할 때만 (변형, 종목)을 5 USDC 로 전환한다(2026-10-06 promotion:ai-direct). 연구자가 yaml 로 직접 바꿀 수도 있다.
-
-### [참고] paper 변형 lts-queen 증거 수집 중 (0/20건)
-
-- 시스템 변경 · 자동 규칙 · 최초 10-11 03:31 · 갱신 10-11 03:31 KST · id `paper:lts-queen`
-- 근거: `strategies/lts-queen.yaml`
-
-가설: LTS arm B(이르게): 경기 진행 60–70% 뒤 선두 가격이 임계값 Y 에 들어오면 매수호가 한 틱 아래 지정가(수수료 0)로 사서 정산까지 보유한다. 종목별 (T, Y, 대기) 는 2026-10-10 사전 등록 grid 에서 H1 데이터만으로 고른 칸. 근거 docs/research/hypothesis-lts.md.. paper 정산 0건, ROI –(paper 원장, 실손익 아님). live 전환: 종목별 변형은 결정론 승격 게이트가 자동으로, 또는 AI 회고가 제안하면 retro 가 직접 돌린 재생(종목별 최소 건수·전체와 두 반기 ROI ≥ 0)과 paper 표본(유의하게 음수가 아님)이 통과할 때만 (변형, 종목)을 5 USDC 로 전환한다(2026-10-06 promotion:ai-direct). 연구자가 yaml 로 직접 바꿀 수도 있다.
 
 ### [참고] paper 변형 ai-ou05-red 증거 수집 중 (0/20건)
 
@@ -267,21 +281,15 @@ events_summary.json(2026-10-04T23:30 갱신) 기준: MLB run mean_abs_jump 0-3�
 
 누적 live 결과: dog 34건 PnL +0.38 USDC ROI +0.22%, cat 33건 PnL −3.14 USDC ROI −1.90%, 격차 3.52 USDC(이전 회고 3.37 USDC에서 확대). 오늘 동시 진입 경기에서 dog이 cat보다 Malta/Andorra +0.02·Azerbaijan/Lithuania +0.04 높은 매도가 달성. take_profit_delta 0.04(dog)가 0.02(cat)보다 더 높은 수렴 가격을 포착하는 패턴 지속. 단 stop_price(0.60 vs 0.65)·use_stored_stop(true vs false) 차이도 있어 TP delta만의 효과 분리 불가. n=33/34로 통계 결론 불가하나 격차가 매일 확대 중이다.
 
-### [참고] goal-over-all 첫 stop_loss: 실제 득점이 있는 경기에서 인게임 가격 임시 하락으로 발동
-
-- 연구 발견 · AI 판단 · 최초 10-04 08:00 · 갱신 10-04 08:00 KST · id `ai:ai-goal-over-all-stop-loss-correct`
-- 근거: `metrics/goal-over-all.json, trades_recent.json`
-
-Belarus vs. San Marino Over 0.5: 진입가 0.968, 인게임 가격 임시 하락 0.832(-13.6%)으로 stop_loss_pct=10% 발동(-0.751 USDC 실현손실). 그러나 Belarus는 득점·승리로 경기를 끝냈다(watermelon-cat HOME:YES take_profit으로 확인). 옳은 방향 포지션이 임시 가격 하락으로 손절된 plum(ai:plum-soccer-stop-loss-correct)과 동일 패턴이다. n=4로 결론 불가이나, 킥오프 전 pre-game 진입에서도 1분 주기 집행 한계로 stop_loss_pct=10%가 조기 발동될 수 있음이 확인됐다.
-
 ## 최근 해결
 
 <details>
-<summary>최근 14일 해결 51건</summary>
+<summary>최근 14일 해결 52건</summary>
 
-- **paper 변형 plum-king 표본 76건 도달: live 전환 결정 필요** — 사용자 결정 (2026-10-06): ROI −3.0% 로는 live 하지 않는다. 더 개선해 ROI 가 양수가 되는 조건을 찾는다. (10-11 03:31 KST)
-- **paper 변형 plum-queen 표본 77건 도달: live 전환 결정 필요** — 사용자 결정 (2026-10-06): 마찬가지로 ROI 가 양수가 되는 조건을 찾는다. (10-11 03:31 KST)
-- **LTS NFL arm A(lts-king) live 여부 — 사전 등록 규칙 중 다중 비교 점검만 실패** — 사용자 결정 (2026-10-10): (a) NFL arm A(lts-king)는 paper 로 두고 결정론 승격 게이트에 맡긴다(paper 체결 15건 이상·80% 하한 › 0·재생 통과 시 자동 5 USDC live). (10-11 03:31 KST)
+- **paper 변형 plum-king 표본 77건 도달: live 전환 결정 필요** — 사용자 결정 (2026-10-06): ROI −3.0% 로는 live 하지 않는다. 더 개선해 ROI 가 양수가 되는 조건을 찾는다. (10-11 08:01 KST)
+- **paper 변형 plum-queen 표본 78건 도달: live 전환 결정 필요** — 사용자 결정 (2026-10-06): 마찬가지로 ROI 가 양수가 되는 조건을 찾는다. (10-11 08:01 KST)
+- **LTS NFL arm A(lts-king) live 여부 — 사전 등록 규칙 중 다중 비교 점검만 실패** — 사용자 결정 (2026-10-10): (a) NFL arm A(lts-king)는 paper 로 두고 결정론 승격 게이트에 맡긴다(paper 체결 15건 이상·80% 하한 › 0·재생 통과 시 자동 5 USDC live). (10-11 08:01 KST)
+- **goal-over-all 첫 stop_loss: 실제 득점이 있는 경기에서 인게임 가격 임시 하락으로 발동** — 자동 만료 (AI 항목, 7일 동안 재확인 없음) (10-11 08:01 KST)
 - **축구 득점 jump peak가 30-45분 구간 — 가설 2번(후반 민감도 증가)과 반대** — 자동 만료 (AI 항목, 7일 동안 재확인 없음) (10-11 03:31 KST)
 - **watermelon A/B arm 누적 갱신: dog TP delta 0.04가 cat 0.02보다 일관되게 높은 성과 (24/22건)** — 자동 만료 (AI 항목, 7일 동안 재확인 없음) (10-10 19:31 KST)
 - **watermelon 축구 동시 진입 7건 비교: dog TP delta 0.04가 cat 0.02보다 일관되게 높은 매도가 달성** — 자동 만료 (AI 항목, 7일 동안 재확인 없음) (10-10 08:01 KST)
