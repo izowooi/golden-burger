@@ -218,15 +218,22 @@ class PaperVenue:
         self.view = view
         self.fee_lookup = fee_lookup
         self.open_by_id = None
+        self._ticks: dict[str, float] = {}
 
     def tick(self, token_id: str) -> float:
-        return DEFAULT_TICK
+        """The venue's tick as seen in the last stored book: Polymarket quotes 0.001 steps near 0 and 1 (stored levels
+        then carry a third decimal), else 0.01. Without it "one tick below the bid" would round to a whole cent."""
+        return self._ticks.get(token_id, DEFAULT_TICK)
 
     def min_shares(self, token_id: str) -> float:
         return DEFAULT_MIN_SHARES
 
     def book(self, token_id: str, now: int) -> Book | None:
-        return self.view.book(token_id, now, max_age_s=180)
+        b = self.view.book(token_id, now, max_age_s=180)
+        if b is not None:
+            fine = any(abs(p * 100 - round(p * 100)) > 1e-6 for p, _ in (b.bids or []) + (b.asks or []))
+            self._ticks[token_id] = 0.001 if fine else DEFAULT_TICK
+        return b
 
     def prefetch(self) -> list[dict]:
         return []

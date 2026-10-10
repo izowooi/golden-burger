@@ -326,10 +326,11 @@ def maintain_maker(ledger: StrategyLedger, venue, strategy, view, now: int, *, k
                     reason = "ttl"
                 else:
                     try:
+                        raw_book = venue.book(order["token_id"], now)          # before tick: paper infers it
                         tick = venue.tick(order["token_id"])
                         mine = float(order["shares"] or 0) - float(order["filled_shares"] or 0)
-                        book = makermod.own_removed(venue.book(order["token_id"], now), "BUY",
-                                                    float(order["limit_price"]), mine if venue.mode == "live" else 0)
+                        book = makermod.own_removed(raw_book, "BUY", float(order["limit_price"]),
+                                                    mine if venue.mode == "live" else 0)
                         lo, hi, rule = _entry_band(ledger, pos)
                         target = makermod.entry_price(book, tick, lo, hi, rule or str(ex["maker_price_rule"]))
                     except Exception:

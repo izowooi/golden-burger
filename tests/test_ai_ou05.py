@@ -375,3 +375,16 @@ def test_below_rule_prices_one_tick_under_bid():
     b = Book("t", 0, [(0.95, 10)], [(0.96, 10)], "poll", False)
     assert maker.entry_price(b, 0.01, 0.8, 0.99, "below") == pytest.approx(0.94)
     assert maker.entry_price(Book("t", 0, [(0.01, 10)], [(0.02, 10)], "poll", False), 0.01, 0.0, 1, "below") is None
+
+
+def test_paper_venue_infers_fine_tick_from_stored_book(tmp_path):
+    from polylab.execution.maker import PaperVenue
+    env, now = market_world(tmp_path, over=(0.971, 0.979), under=(0.021, 0.029))
+    v = PaperVenue(env.view(now), None)
+    assert v.tick("ov1") == 0.01                                          # unknown before a book was read
+    v.book("ov1", now)
+    assert v.tick("ov1") == 0.001
+    env2, now2 = market_world(tmp_path / "b")
+    v2 = PaperVenue(env2.view(now2), None)
+    v2.book("ov1", now2)
+    assert v2.tick("ov1") == 0.01
