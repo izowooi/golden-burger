@@ -427,3 +427,22 @@ def test_repick_uses_stored_forecasts_and_new_pool(tmp_path):
     picks = lf.canonical_ou05_picks(conn, NOW + 200)
     assert set(picks) == {"g1", "g2"} and picks["g2"]["under_token"] == "un2"
     assert conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 2  # no new AI run
+
+
+def test_paper_order_keeps_resting_while_no_book_is_stored(tmp_path, monkeypatch):
+    from polylab.engine.tick import run as tick
+
+    monkeypatch.delenv("POLYLAB_KILL", raising=False)
+    env, now = market_world(tmp_path, over=(0.94, 0.96), under=(0.04, 0.05))
+    monkeypatch.setattr(AiOu05, "picks_source", staticmethod(lambda n: {"g1": pick()}))
+    monkeypatch.setattr(AiOu05, "owner_conditions", staticmethod(lambda a, n, age: set()))
+    reg = tmp_path / "reg"
+    reg.mkdir()
+    real = yaml.safe_load(open("strategies/ai-ou05-red.yaml"))
+    real.update(mode="paper", account=None)
+    (reg / "ai-ou05-red.yaml").write_text(yaml.safe_dump(real, allow_unicode=True))
+    tick(env.paths, registry_dir=reg, poll=False, now=now)
+    for later in (now + 20 * 60, now + 70 * 60):              # book too old (no drift check), then past the TTL
+        tick(env.paths, registry_dir=reg, poll=False, now=later)
+        [o] = [dict(r) for r in db.strategy(env.paths, "ai-ou05-red").execute("SELECT * FROM orders")]
+        assert o["status"] == "resting" and o["cancel_reason"] is None

@@ -41,6 +41,7 @@ from polylab.strategies.base import floor2
 
 DEFAULT_MIN_SHARES = 5.0
 DEFAULT_TICK = 0.01
+PAPER_BOOK_MAX_AGE_S = 900
 VENUE_DONE = {"MATCHED", "CANCELED", "CANCELLED", "CANCELED_MARKET_RESOLVED", "INVALID"}
 VENUE_CANCELLED = VENUE_DONE - {"MATCHED"}
 ORDER_FIELDS = ("id", "status", "size_matched", "original_size", "price", "side", "created_at", "order_type")
@@ -229,7 +230,8 @@ class PaperVenue:
         return DEFAULT_MIN_SHARES
 
     def book(self, token_id: str, now: int) -> Book | None:
-        b = self.view.book(token_id, now, max_age_s=180)
+        # pre-game Total 0.5 books are stored about every 10 min; 180 s left most pre-game minutes without a price
+        b = self.view.book(token_id, now, max_age_s=PAPER_BOOK_MAX_AGE_S)
         if b is not None:
             fine = any(abs(p * 100 - round(p * 100)) > 1e-6 for p, _ in (b.bids or []) + (b.asks or []))
             self._ticks[token_id] = 0.001 if fine else DEFAULT_TICK

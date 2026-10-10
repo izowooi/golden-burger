@@ -323,10 +323,17 @@ def maintain_maker(ledger: StrategyLedger, venue, strategy, view, now: int, *, k
                 elif pview is None or not strategy.maker_entry_open(view, now, pview):
                     reason = "window_closed"
                 elif now - int(order["created_at"]) >= float(ex["maker_ttl_minutes"]) * 60:
+                    try:
+                        if venue.book(order["token_id"], now) is None:
+                            continue        # cannot re-quote without a book: keep the order until one arrives
+                    except Exception:
+                        continue
                     reason = "ttl"
                 else:
                     try:
                         raw_book = venue.book(order["token_id"], now)          # before tick: paper infers it
+                        if raw_book is None:
+                            continue            # no book to judge drift by: keep resting (TTL still applies)
                         tick = venue.tick(order["token_id"])
                         mine = float(order["shares"] or 0) - float(order["filled_shares"] or 0)
                         book = makermod.own_removed(raw_book, "BUY", float(order["limit_price"]),
