@@ -25,7 +25,7 @@ DATED = (
                "H2 +2.2%, 95% 하한 양수, 시즌 2024 +7.9%(65)·2025 +0.4%(51)·2026 +11.2%(15)), 엔진 재생(R7) 131건 +5.2% 로 재현. 그러나 "
                "사전 등록한 다중 비교 점검(H1 상위 20칸의 H2 ROI 중앙값)이 −5.1%(6/20)라 규칙상 '강건한 양수'가 아니어서 paper 로 두었다. "
                "같은 효과가 apricot-eco NFL(190분, live)·late-leader NFL(170분)에서도 나온 것이라 독립 증거가 아니다. 경기 중 post-only 지정가가 "
-               "실제로 걸려 있는지는 2026-10-10 king 계좌로 직접 확인했다(docs/research/api-sources.md 'In-play maker'). 선택지: (a) paper 유지 — "
+               "실제로 걸려 있는지는 2026-10-10 king 계좌로 직접 확인했다(세 경기 최대 45분 LIVE·취소 확인, 다만 시험 중 득점이 없어 득점 순간은 호가 깊이로만 간접 확인; docs/research/api-sources.md 'In-play maker'). 선택지: (a) paper 유지 — "
                "결정론 게이트가 새 paper 체결 15건 이상·80% 하한 > 0 이면 자동 전환(시즌당 약 40체결이라 수 주), (b) 지금 NFL 만 5 USDC live. "
                "근거 docs/research/hypothesis-lts.md. decisions.md 에 이 id 로 답하면 닫힌다."},
 )
