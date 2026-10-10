@@ -82,4 +82,7 @@ AI 는 이 결정을 전제로 판단한다(같은 질문을 다시 하지 않�
 - `ai-ou05:bands` — 가격 범위 Over 0.80–0.99, Under 0.01–0.20.
 - `ai-ou05:protocol-v2` — 연구의 핵심은 최신 Claude·ChatGPT 가 Polymarket 보다 0:0 여부를 더 정확히 맞추는가이며, 못 맞추거나 같으면 실패로 본다. 두 엔진 모두 프론티어 모델(Claude Opus 5.5, ChatGPT GPT-6.1-Sol; Fable·Astra 는 비싸서 쓰지 않음)로 근거(양 팀 상황·전력 차·감독 성향·상대 전적 등)를 충분히 조사한다. 적용: 모델·추론 강도 고정(Opus 5.5 effort high, GPT-6.1-Sol reasoning high), Mac mini Claude Code 2.1.138→2.1.295 업데이트(Opus 5.5 는 2.1.280 이상 필요), 조사 6항목 구조화 프롬프트, AI 에게 시장 가격 비공개(시장에 끌려가지 않게), 이전 실행은 Sonnet 4.6·추론 없는 GPT 였음을 기록.
 - `ai-ou05:absorb-llm-nil` — 기존 AI 0:0 연구(llm-nil)는 ai-ou05 연구로 흡수한다. 적용: llm-nil-draw·llm-nil-consensus off, 예측·합의 기록과 `polylab forecast eval` 채점은 계속.
+- `ai-ou05:paper-first` — Over·Under 모두 paper(모의 거래)로 시작한다. Under(0:0)는 대부분 지다가 한 번에 만회하는 구조라 paper 로 먼저 본다. Over 는 연구자 수동 기록(10경기 넘게 1패)이 좋지만, 자동 보고서 품질이 연구자 보고서와 같은지 먼저 확인한다: 자동 보고서가 연구자 보고서와 70% 이상 일치하면 Over 만 live 로 시작하고, 아니면 둘 다 paper.
+- `ai-ou05:bid-below` — 진입 지정가는 호가 합과 무관하게(1.01 이든 1.02 든) 항상 매수호가보다 한 틱 아래에 걸고 기다린다. 이미 과대평가된 가격을 굳이 사지 않는다. 더 싸게, 늦게(또는 안) 체결되는 것을 택한다. 호가 합 낮은 순 우선은 유지.
+- `ai-ou05:extremes` — 연구의 초점은 AI 가 예측한 전 경기가 아니라 최상위(0:0 가장 안 날)·최하위(0:0 가장 날) 소수 경기가 시장보다 얼마나 정확한가이다. 적용: 픽 기준을 두 AI 각자 상위 10위(연구자 보고서의 top 10 형식과 같게)로 바꿨다(사전 등록 OU05_RULE qualify_top 8 → 10, 첫 정식 실행 2026-10-10 10:00 전).
 

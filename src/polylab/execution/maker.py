@@ -87,11 +87,12 @@ def own_removed(book: Book | None, side: str, price: float | None, shares: float
 
 def entry_price(book: Book | None, tick: float, lo: float, hi: float, rule: str = "improve") -> float | None:
     """Resting BUY price: `improve` = min(best_bid + tick, best_ask - tick) (one tick inside, never crossing),
-    `join` = best_bid. None without a two-sided book or outside [lo, hi]."""
+    `join` = best_bid, `below` = best_bid - tick (behind the queue: cheaper, fills later). None without a two-sided
+    book or outside [lo, hi]."""
     if book is None or book.best_bid is None or book.best_ask is None or book.crossed:
         return None
     bid, ask = book.best_bid, book.best_ask
-    px = bid if rule == "join" else min(bid + tick, ask - tick)
+    px = bid if rule == "join" else bid - tick if rule == "below" else min(bid + tick, ask - tick)
     px = round(round(px / tick) * tick, 6)
     if px < tick - 1e-12 or px >= ask - 1e-9:
         return None

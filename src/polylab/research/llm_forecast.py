@@ -75,7 +75,7 @@ OU05_LEAGUES = ("epl", "lal", "bun", "sea", "fl1", "mls", "ucl", "uel", "unl")
 OU05_VARIANT = "ai-ou05-red"
 OU05_RULE = {"pool": "OU05_LEAGUES games with a Total 0.5 market (both tokens) at forecast time, forecast by both "
                      "engines, kickoff after the picks were made",
-             "leagues": list(OU05_LEAGUES), "qualify_top": 8, "aggregate": "mean_p00",
+             "leagues": list(OU05_LEAGUES), "qualify_top": 10, "aggregate": "mean_p00",
              "engine_rank": "each engine's own P(0-0) inside the pool, ties by game_key",
              "over": "both engines rank the game within their qualify_top LOWEST P(0-0) -> buy Over 0.5",
              "under": "both engines rank the game within their qualify_top HIGHEST P(0-0) -> buy Under 0.5",

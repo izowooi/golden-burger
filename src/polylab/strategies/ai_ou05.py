@@ -9,9 +9,10 @@ highest P(0-0) are Under picks ("0-0"). This strategy only reads those rows (can
   fee), from the pick until `maker_entry_cutoff_minutes` before kickoff, re-quoted by the maker engine;
 - only when the market is not over-priced as a whole: overround = Over ask + Under ask - 1 <= max_overround
   (the owner skips sums >= 1.05). Not a flat gate (owner 2026-10-10 `ai-ou05:overround-priority`): the further the
-  sum is from 1.0 the more both sides lose, so tight books come first — intents are ordered by overround, and books
-  with overround <= tight_overround rest one tick inside the spread (`improve`, fills sooner) while wider books
-  wait at the best bid (`join`, cheaper, the owner's manual "bid a little lower" at 1.03-1.04);
+  sum is from 1.0 the more both sides lose, so tight books come first — intents are ordered by overround. Every
+  entry rests one tick BELOW the best bid (`entry_price_rule: below`, owner 2026-10-10 `ai-ou05:bid-below`): the
+  price is already over-valued, so the owner never pays up — cheaper, later or never filled. `overround_tier`
+  (<= tight_overround) is recorded for the analysis only;
 - only inside the side's price band, and never on a condition the account's owner already holds outside this
   ledger (red is also the owner's manual wallet: a redeem pays a condition's whole holding in one transaction);
 - holds to resolution: no take-profit, no stop-loss (the study measures calibration at settlement).
@@ -37,7 +38,7 @@ DEFAULTS = {
     "leagues": None,
     "max_overround": 0.04,
     "tight_overround": 0.01,
-    "wide_price_rule": "join",
+    "entry_price_rule": "below",
     "over_price_min": 0.80,
     "over_price_max": 0.99,
     "under_price_min": 0.01,
@@ -166,7 +167,7 @@ class AiOu05(Strategy):
                 continue
             to_kick = game.start_time - now
             tight = ovr <= float(prm["tight_overround"]) + EPS
-            rule = str(self.execution("soccer")["maker_price_rule"]) if tight else str(prm["wide_price_rule"])
+            rule = str(prm["entry_price_rule"])
             intents.append(EntryIntent(
                 token_id=token, condition_id=cid, game_key=gk, sport="soccer", league=game.league,
                 outcome_label=OUTCOME[side], signal_price=book.best_ask, min_price=lo, max_price=hi,

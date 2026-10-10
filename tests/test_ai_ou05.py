@@ -163,8 +163,8 @@ def test_tight_books_first_and_priced_inside_wide_books_wait_at_bid(tmp_path):
     intents = strat({"g1": pick(), "g2": p2}).entry_signals(env.view(now), now, Ledger())
     assert [i.game_key for i in intents] == ["g2", "g1"]                  # lower overround first, despite pick rank
     tight, wide = intents
-    assert tight.features["overround_tier"] == "tight" and tight.features["maker_price_rule"] == "improve"
-    assert wide.features["overround_tier"] == "wide" and wide.features["maker_price_rule"] == "join"
+    assert tight.features["overround_tier"] == "tight" and wide.features["overround_tier"] == "wide"
+    assert tight.features["maker_price_rule"] == wide.features["maker_price_rule"] == "below"   # always behind bid
 
 
 def test_overround_gate_and_bands(tmp_path):
@@ -224,16 +224,16 @@ def test_paper_tick_end_to_end_maker(tmp_path, monkeypatch):
     assert tick(env.paths, registry_dir=reg, poll=False, now=now)["ok"]
     conn = db.strategy(env.paths, "ai-ou05-red")
     [o] = [dict(r) for r in conn.execute("SELECT * FROM orders")]
-    assert o["order_type"] == "GTC" and o["status"] == "resting" and o["limit_price"] == pytest.approx(0.95)
-    env.book("ov1", now + 30, [(0.93, 500)], [(0.94, 500)])               # asks trade through our 0.95 bid
+    assert o["order_type"] == "GTC" and o["status"] == "resting" and o["limit_price"] == pytest.approx(0.93)
+    env.book("ov1", now + 30, [(0.91, 500)], [(0.92, 500)])               # asks trade through our 0.93 bid
     env.book("un1", now + 30, [(0.05, 500)], [(0.06, 500)])
     tick(env.paths, registry_dir=reg, poll=False, now=now + 60)
     [p] = [dict(r) for r in db.strategy(env.paths, "ai-ou05-red").execute("SELECT * FROM positions")]
-    assert p["status"] == "open" and p["entry_price"] == pytest.approx(0.95) and p["entry_fee_usdc"] == 0.0
+    assert p["status"] == "open" and p["entry_price"] == pytest.approx(0.93) and p["entry_fee_usdc"] == 0.0
     env.resolve("ou1", 0, KICK + 7200)
     tick(env.paths, registry_dir=reg, poll=False, now=KICK + 3 * 3600)
     p = dict(db.strategy(env.paths, "ai-ou05-red").execute("SELECT * FROM positions").fetchone())
-    assert p["status"] == "resolved" and p["realized_pnl"] == pytest.approx(5 / 0.95 * 1 - 5, abs=0.06)
+    assert p["status"] == "resolved" and p["realized_pnl"] == pytest.approx(5 / 0.93 * 1 - 5, abs=0.06)
 
 
 # ---------------------------------------------------------------- owner wallet separation & lock
@@ -278,9 +278,10 @@ def test_bot_activity_reads_live_fills_of_the_wallets_variants(tmp_path):
     assert manual_sync.bot_activity(env.paths, "wolf", variants) == (set(), set())
 
 
-def test_registry_yaml_is_live_red_maker_no_stop():
+def test_registry_yaml_is_red_maker_no_stop():
     v = load_variant(__import__("pathlib").Path("strategies/ai-ou05-red.yaml"))
-    assert (v.account, v.mode, v.stake_usdc, v.family) == ("red", "live", 5.0, "ai_ou05")
+    assert (v.account, v.stake_usdc, v.family) == ("red", 5.0, "ai_ou05") and v.mode in ("paper", "live")
+    assert v.params["entry_price_rule"] == "below"
     assert v.params["order_style"] == "maker" and v.params["leagues"] == list(lf.OU05_LEAGUES)
     assert v.params["max_overround"] <= 0.04 and "stop_loss_price" not in v.params
     assert "ai-ou05-red" in OWNER_LOCKED
@@ -298,7 +299,7 @@ def test_owner_lock_rejects_every_change_and_ladder_skips_it():
     assert retro.ladder_changes(report)["changes"] == []
 
 
-def test_wide_book_rests_at_best_bid_in_paper_tick(tmp_path, monkeypatch):
+def test_entry_rests_one_tick_below_best_bid_in_paper_tick(tmp_path, monkeypatch):
     from polylab.engine.tick import run as tick
 
     monkeypatch.delenv("POLYLAB_KILL", raising=False)
@@ -312,7 +313,7 @@ def test_wide_book_rests_at_best_bid_in_paper_tick(tmp_path, monkeypatch):
     (reg / "ai-ou05-red.yaml").write_text(yaml.safe_dump(real, allow_unicode=True))
     tick(env.paths, registry_dir=reg, poll=False, now=now)
     [o] = [dict(r) for r in db.strategy(env.paths, "ai-ou05-red").execute("SELECT * FROM orders")]
-    assert o["limit_price"] == pytest.approx(0.93)                       # join the bid, not 0.94
+    assert o["limit_price"] == pytest.approx(0.92)                       # one tick below the 0.93 bid
 
 
 def test_codex_web_runs_inside_secret_denying_sandbox(tmp_path):
@@ -366,3 +367,11 @@ def test_chunked_engine_merges_chunks_and_survives_one_failed_chunk(tmp_path):
     single = lf.run_engine_chunked(FakeEngine("codex", payload=payload), "p", tmp_path / "s", games[:2], {}, NOW, 60,
                                    clock=lambda: NOW, chunk_size=2)
     assert single["ok"] and not (tmp_path / "s" / "c0").exists()
+
+
+def test_below_rule_prices_one_tick_under_bid():
+    from polylab.execution import maker
+    from polylab.marketview import Book
+    b = Book("t", 0, [(0.95, 10)], [(0.96, 10)], "poll", False)
+    assert maker.entry_price(b, 0.01, 0.8, 0.99, "below") == pytest.approx(0.94)
+    assert maker.entry_price(Book("t", 0, [(0.01, 10)], [(0.02, 10)], "poll", False), 0.01, 0.0, 1, "below") is None
