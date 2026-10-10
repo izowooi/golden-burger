@@ -415,6 +415,39 @@ def publish_ou05(paths, storage: Storage | None, prefix: str = "", out: Path | N
     return written
 
 
+def publish_lts(paths, storage: Storage | None, prefix: str = "", out: Path | None = None) -> list[str]:
+    """latest/lts/*: upload the LTS study files that `polylab analyze lts` (weekly, after the weekly retro) left under
+    <research_dir>/lts/latest. Upload only, changed files only (digests in state/publish_lts.json)."""
+    from polylab.analysis import lts  # noqa: PLC0415
+    files = lts.cached_files(paths)
+    if not files:
+        return []
+    state_path = Path(paths.state) / "publish_lts.json"
+    try:
+        state = json.loads(state_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        state = {}
+    track = storage is not None and not prefix
+    seen = state.get("digests", {}) if track else {}
+    digests, written = {}, []
+    for path, f in files.items():
+        body = f.read_bytes()
+        digests[path] = hashlib.sha256(body).hexdigest()
+        if seen.get(path) == digests[path]:
+            continue
+        if out is not None:
+            dest = out / prefix / path
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(body)
+        if storage is not None:
+            storage.upload(prefix + path, body)
+        written.append(prefix + path)
+    if track:
+        state["digests"] = digests
+        state_path.write_text(json.dumps(state))
+    return written
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="polylab publish")
     ap.add_argument("--dry-run", action="store_true", help="build only; do not upload")
@@ -446,6 +479,10 @@ def main(argv: list[str] | None = None) -> int:
         written += publish_ou05(paths, storage, prefix=prefix, out=args.out)
     except Exception as exc:  # noqa: BLE001
         print(f"publish: ou05 skipped: {type(exc).__name__}: {exc}", file=sys.stderr)
+    try:  # the LTS study page is optional too
+        written += publish_lts(paths, storage, prefix=prefix, out=args.out)
+    except Exception as exc:  # noqa: BLE001
+        print(f"publish: lts skipped: {type(exc).__name__}: {exc}", file=sys.stderr)
     verb = "built" if args.dry_run else "uploaded"
     print(f"publish: {verb} {len(written)} objects in {time.time() - t0:.1f}s")
     return 0

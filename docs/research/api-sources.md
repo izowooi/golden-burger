@@ -295,6 +295,16 @@ on a LaLiga Over 0.5 token (`asset_id` 220694…288866, best bid 0.97 / ask 0.99
 → `get_order` `LIVE`, `get_open_orders(id)` 1 row → `cancel_orders` `canceled: [id]` → `get_order` `CANCELED`,
 `size_matched` 0. No fill, no position.
 
+## In-play maker: post-only GTC during a live game (verified 2026-10-10, LTS study)
+
+| Item | Fact | Source |
+|---|---|---|
+| Matching delay | Docs (Order Lifecycle): "Sports/game delay: enabled on configured sports markets around live game conditions" — applies to **marketable** orders (status `delayed`, cannot be cancelled during the delay, re-validated after). "If the order is not marketable, it rests on the book … until another order matches against it, you cancel it, or it expires". A post-only order is never marketable | [docs] https://docs.polymarket.com/concepts/order-lifecycle |
+| Market config | `GET clob.polymarket.com/clob-markets/<cid>` of an EPL moneyline (Arsenal–Leeds, 2026-10-10): `sd: 1` (= Gamma `secondsDelay` 1), `cbos: true` (`clearBookOnStart`), `mts 0.01`, `mos 5`, `fd {"r": 0.05, "e": 1, "to": true}`. Gamma `feeSchedule` also carries `rebateRate: 0.15` (maker rebates exist; paid out-of-band, not booked) | [obs] |
+| Clear book on start | `cbos` clears resting orders at the scheduled start. Orders posted after the start are not affected (probe below) | [obs] |
+| Resting in play | Supervised probe on account `king`: post-only GTC BUY 5 @ 0.05 on the Arsenal Yes token posted at match minute 6 (best bid 0.66) → `success`/`live`; `get_order` `LIVE`, `size_matched 0`, and the 0.05 level visible in `/book` on every one of 25 polls (one per minute, minutes 6–32, bid moved 0.66 → 0.59); `cancel_orders` → `canceled`, `get_order` `CANCELED` 3 s later. No fill, no position | [obs] |
+| Game events | Probe 1 had no goal (0-0 through minute 32). Indirect evidence: across 3,109 in-play score changes (2026-09-30~10-10, stored books, 5 sports) the visible bid depth of the moneyline tokens 30–180 s after the score change vs before had median ratio 1.01–1.43, and fell below 10% of the pre-event depth in only 0.2–6% of events — books are not cleared on scores. Probes 2–3 (same game minutes 35–80, Rayo–Athletic 0–45) are recorded below when they finish. | [obs] |
+
 ## Not available / caveats
 
 - CLOB `/prices-history` has no tick-level (per-trade) series and no historical order-book depth. Old markets return 404 from `/book`. For fills, use Data API trades.

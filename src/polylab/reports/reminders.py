@@ -17,6 +17,17 @@ DATED = (
     # 2026-10-10 owner: report the ai-ou05 (AI cross-checked O/U 0.5, paper) progress one week later
     {"id": "reminder:ai-ou05-1w", "start": "2026-10-17", "slack_days": 3, "kind": "ai_ou05",
      "title": "AI 교차검증 O/U 0.5(ai-ou05-red, paper) 1주 진행 상황"},
+    # 2026-10-10 `hypothesis:lts-applied`: the only cell passing R1-R7 failed the pre-registered multiple-comparison check
+    {"id": "decision:lts-nfl-king-live", "start": "2026-10-10", "slack_days": 2, "kind": "text",
+     "title": "LTS NFL arm A(lts-king) live 여부 — 사전 등록 규칙 중 다중 비교 점검만 실패",
+     "detail": "후반 임계 안정성(LTS) 사전 등록 grid 600칸 중 R1–R6 을 통과한 것은 NFL 막판(예정 시작 170분 = 진행 90%, 선두 0.85–0.93) "
+               "칸뿐이다. lts-king NFL(170분·Y 0.90·경기 끝까지 대기, 매수호가 −1틱 지정가·정산 보유): 체결 131건 maker ROI +5.3%(H1 +8.1% / "
+               "H2 +2.2%, 95% 하한 양수, 시즌 2024 +7.9%(65)·2025 +0.4%(51)·2026 +11.2%(15)), 엔진 재생(R7) 131건 +5.2% 로 재현. 그러나 "
+               "사전 등록한 다중 비교 점검(H1 상위 20칸의 H2 ROI 중앙값)이 −5.1%(6/20)라 규칙상 '강건한 양수'가 아니어서 paper 로 두었다. "
+               "같은 효과가 apricot-eco NFL(190분, live)·late-leader NFL(170분)에서도 나온 것이라 독립 증거가 아니다. 경기 중 post-only 지정가가 "
+               "실제로 걸려 있는지는 2026-10-10 king 계좌로 직접 확인했다(docs/research/api-sources.md 'In-play maker'). 선택지: (a) paper 유지 — "
+               "결정론 게이트가 새 paper 체결 15건 이상·80% 하한 > 0 이면 자동 전환(시즌당 약 40체결이라 수 주), (b) 지금 NFL 만 5 USDC live. "
+               "근거 docs/research/hypothesis-lts.md. decisions.md 에 이 id 로 답하면 닫힌다."},
 )
 ACCOUNT_REQUESTS = {
     "late-leader-paper": ("account:late-leader-paper",

@@ -5,6 +5,8 @@ publish job and reports read them instead of recomputing. `explore` (dashboard /
 7-day game browser, <research_dir>/explore/) always covers the full DB and is not part of `all`.
 `ou05` (soccer O/U 0.5 market-life study, analysis/ou05.py) reads data/ou05/ and also exports the raw minute
 series to parquet under <research_dir>/ou05/parquet (`--no-export` skips that); not part of `all`.
+`lts` (late threshold stability study, analysis/lts.py, dashboard /lts) recomputes the pre-registered grid over the
+whole core.db (about 10-15 minutes; weekly, after the weekly retro); not part of `all`.
 """
 
 from __future__ import annotations
@@ -67,7 +69,7 @@ def run(what: str, paths, since: int | None, until: int | None, all_leagues: boo
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="polylab analyze")
-    ap.add_argument("what", choices=["calibration", "events", "dataset", "explore", "ou05", "all"])
+    ap.add_argument("what", choices=["calibration", "events", "dataset", "explore", "ou05", "lts", "all"])
     ap.add_argument("--since", help="YYYY-MM-DD, Nd or unix seconds (games starting at/after)")
     ap.add_argument("--until", help="YYYY-MM-DD, Nd or unix seconds")
     ap.add_argument("--json", action="store_true", help="print full JSON result")
@@ -90,6 +92,12 @@ def main(argv: list[str] | None = None) -> int:
     if not paths.core_db.exists():
         print(f"analyze: core db missing at {paths.core_db}", file=sys.stderr)
         return 3
+    if args.what == "lts":
+        from polylab.analysis import lts  # noqa: PLC0415
+        res = lts.run(paths)
+        print(json.dumps(res, ensure_ascii=False, indent=1) if args.json else
+              f"lts: {res['games']} games in {res['seconds']}s -> {res['dir']}")
+        return 0
     if args.what == "explore":
         from polylab.analysis import explore  # noqa: PLC0415
         res = explore.run(paths)

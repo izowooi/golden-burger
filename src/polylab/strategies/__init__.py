@@ -9,6 +9,7 @@ from polylab.strategies.cherry import Cherry
 from polylab.strategies.goal_over import GoalOver
 from polylab.strategies.late_leader import LateLeader
 from polylab.strategies.llm_nil import LlmNil
+from polylab.strategies.lts import Lts
 from polylab.strategies.plum import Plum
 from polylab.strategies.watermelon import Watermelon
 
@@ -21,6 +22,7 @@ FAMILIES: dict[str, type[Strategy]] = {
     "goal_over": GoalOver,
     "late_leader": LateLeader,
     "ai_ou05": AiOu05,
+    "lts": Lts,
 }
 
 

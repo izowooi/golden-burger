@@ -1,0 +1,189 @@
+id: lts-king
+family: lts
+hypothesis: 'LTS arm A(늦게): 경기 진행 80–90% 뒤 선두 가격이 임계값 Y 에 들어오면 매수호가 한 틱 아래 지정가(수수료
+  0)로 사서 정산까지 보유한다. 종목별 (T, Y, 대기) 는 2026-10-10 사전 등록 grid 에서 H1 데이터만으로 고른 칸. 근거 docs/research/hypothesis-lts.md.'
+account: king
+mode: paper
+sports:
+  soccer:
+    mode: paper
+    stake_usdc: 5.0
+    limits:
+      max_positions: 15
+      max_open_usdc: 75
+      daily_loss_stop_usdc: 20
+  mlb:
+    mode: paper
+    stake_usdc: 5.0
+    limits:
+      max_positions: 15
+      max_open_usdc: 75
+      daily_loss_stop_usdc: 20
+  nba:
+    mode: paper
+    stake_usdc: 5.0
+    limits:
+      max_positions: 15
+      max_open_usdc: 75
+      daily_loss_stop_usdc: 20
+  nfl:
+    mode: paper
+    stake_usdc: 5.0
+    limits:
+      max_positions: 15
+      max_open_usdc: 75
+      daily_loss_stop_usdc: 20
+  nhl:
+    mode: paper
+    stake_usdc: 5.0
+    limits:
+      max_positions: 15
+      max_open_usdc: 75
+      daily_loss_stop_usdc: 20
+stake_usdc: 5.0
+params:
+  leagues:
+  - epl
+  - lal
+  - bun
+  - sea
+  - fl1
+  - mls
+  - ucl
+  - uel
+  - unl
+  min_game_volume_usd: 20000
+  band_width: 0.03
+  band_cap: 0.995
+  floor_c: 0.05
+  min_leader_margin: 0.005
+  book_max_age_s: 120
+  order_style: maker
+  maker_price_rule: below
+  maker_ttl_minutes: 600
+  maker_reprice_ticks: 100
+  sport_overrides:
+    soccer:
+      min_wall_minute: 95
+      trigger_price: 0.99
+      max_wait_minutes: 30
+      hours_max: 3.0
+      min_game_volume_usd: 20000
+    mlb:
+      min_wall_minute: 134
+      trigger_price: 0.99
+      max_wait_minutes: 5
+      hours_max: 6.0
+      min_game_volume_usd: 20000
+    nba:
+      min_wall_minute: 119
+      trigger_price: 0.95
+      max_wait_minutes: 5
+      hours_max: 5.0
+      min_game_volume_usd: 20000
+    nfl:
+      min_wall_minute: 170
+      trigger_price: 0.9
+      max_wait_minutes: null
+      hours_max: 6.0
+      min_game_volume_usd: 20000
+    nhl:
+      min_wall_minute: 148
+      trigger_price: 0.97
+      max_wait_minutes: null
+      hours_max: 5.0
+      min_game_volume_usd: 20000
+bounds:
+  sport_overrides.soccer.min_wall_minute:
+  - 60
+  - 119
+  - 12
+  sport_overrides.soccer.trigger_price:
+  - 0.6
+  - 0.99
+  - 0.02
+  sport_overrides.soccer.max_wait_minutes:
+  - 5
+  - 90
+  - 5
+  sport_overrides.soccer.min_game_volume_usd:
+  - 5000
+  - 200000
+  - 10000
+  sport_overrides.mlb.min_wall_minute:
+  - 84
+  - 168
+  - 17
+  sport_overrides.mlb.trigger_price:
+  - 0.6
+  - 0.99
+  - 0.02
+  sport_overrides.mlb.max_wait_minutes:
+  - 5
+  - 90
+  - 5
+  sport_overrides.mlb.min_game_volume_usd:
+  - 5000
+  - 200000
+  - 10000
+  sport_overrides.nba.min_wall_minute:
+  - 74
+  - 149
+  - 15
+  sport_overrides.nba.trigger_price:
+  - 0.6
+  - 0.99
+  - 0.02
+  sport_overrides.nba.max_wait_minutes:
+  - 5
+  - 90
+  - 5
+  sport_overrides.nba.min_game_volume_usd:
+  - 5000
+  - 200000
+  - 10000
+  sport_overrides.nfl.min_wall_minute:
+  - 94
+  - 189
+  - 19
+  sport_overrides.nfl.trigger_price:
+  - 0.6
+  - 0.99
+  - 0.02
+  sport_overrides.nfl.max_wait_minutes:
+  - 5
+  - 90
+  - 5
+  sport_overrides.nfl.min_game_volume_usd:
+  - 5000
+  - 200000
+  - 10000
+  sport_overrides.nhl.min_wall_minute:
+  - 82
+  - 164
+  - 16
+  sport_overrides.nhl.trigger_price:
+  - 0.6
+  - 0.99
+  - 0.02
+  sport_overrides.nhl.max_wait_minutes:
+  - 5
+  - 90
+  - 5
+  sport_overrides.nhl.min_game_volume_usd:
+  - 5000
+  - 200000
+  - 10000
+limits:
+  max_positions: 40
+  max_open_usdc: 200
+  daily_loss_stop_usdc: 50
+  max_new_per_cycle: 10
+  max_sells_per_cycle: 0
+notes: '2026-10-10 연구자 요청 `hypothesis:lts`(후반 임계 안정성)로 신설. paper, 5 USDC 고정, 지정가(maker)만:
+  매수호가 한 틱 아래에 걸고 재호가 없이 대기(대기 시간 max_wait_minutes, null = 경기 끝까지), 경기당 1회 시도, 손절·익절
+  없이 정산 보유. 종목별 (T, Y, 대기)는 사전 등록 grid(5 종목 × T 60·70·80·90% × Y 10개 × 대기 3개)에서 H1
+  데이터만으로 고른 칸이다. 결과: 신호 순간 선두는 대부분 가격대로 보정되어 있고, 매수호가 한 틱 아래 지정가는 지는 경기에서 거의 100%·이기는
+  경기에서 23–70% 만 체결되는 역선택 때문에 거의 모든 칸에서 taker 보다 나쁘다. R1–R6 을 통과한 것은 NFL 막판(170분, Y
+  0.85–0.90)뿐이고 그것도 사전 등록 다중 비교 점검(H1 상위 20칸의 H2 중앙값 −5.1%)에서 실패해 전 종목 paper. 근거 docs/research/hypothesis-lts.md.
+  A arm: 진행 80–90% 층의 선택 칸.'

@@ -72,6 +72,10 @@ OWNER_NO_DIRECT_LIVE: dict[str, str] = {
     # 2026-10-06 `paper_ready:plum-king/queen`: no live at paper ROI -3.0%; the new NFL cell is an in-sample backtest
     "plum-king": "2026-10-06 paper_ready:plum-king",
     "plum-queen": "2026-10-06 paper_ready:plum-queen",
+    # 2026-10-10 `hypothesis:lts-applied`: the only passing cell (NFL king) failed the pre-registered multiple-comparison
+    # check, so an in-sample replay must not take it live; new out-of-sample paper trades (the gate) still may.
+    "lts-king": "2026-10-10 hypothesis:lts-applied",
+    "lts-queen": "2026-10-10 hypothesis:lts-applied",
 }
 
 
@@ -386,6 +390,18 @@ def backtest_gate(ev: dict, rules: Rules, stake_usdc: float, rule=None) -> tuple
     return True, f"n {cur.get('n') or 0}→{n}, {halves}, MDD {cur_dd:.2f}→{new_dd:.2f}"
 
 
+def live_account_conflict(v: Variant, ctx: Context, state: dict) -> str | None:
+    """A paper-master variant going live must not share its account with a variant whose master is already live —
+    in the registry or accepted live earlier in this retro (registry.load_all would refuse both and stop every tick)."""
+    if v.mode == "live" or not v.account:
+        return None
+    holders = {o.id for o in ctx.variants.values() if o.id != v.id and o.account == v.account and o.mode == "live"}
+    holders |= {vid for vid, acct in state.get("live_accounts", {}).items() if vid != v.id and acct == v.account}
+    if holders:
+        return f"account {v.account} already held by live variant(s) {sorted(holders)}"
+    return None
+
+
 def _validate_one(ch: dict, ctx: Context, rules: Rules, source: str, state: dict) -> str:
     if not isinstance(ch, dict):
         raise Reject("change must be an object")
@@ -501,6 +517,9 @@ def _validate_one(ch: dict, ctx: Context, rules: Rules, source: str, state: dict
                 raise Reject(f"{where}mode {cur}→live: only paper sports are promoted")
             if ctx.known_aliases and v.account not in ctx.known_aliases:
                 raise Reject(f"{where}mode paper→live: account alias {v.account!r} is not configured")
+            clash = live_account_conflict(v, ctx, state)
+            if clash:
+                raise Reject(f"{where}mode paper→live refused: {clash}")
             key = promotion_key(vid, sport)
             gate = ctx.promotions.get(key)
             if source == PROMOTION_SOURCE:
@@ -638,6 +657,10 @@ def validate(proposal: Any, ctx: Context, rules: Rules, source: str = "ai",
             out.append(Decision(ch if isinstance(ch, dict) else {}, source, False, str(exc)))
             continue
         state["touched"].add((ch["variant_id"], ch["sport"]) if ch.get("sport") else ch["variant_id"])
+        if ch["change"] == "mode" and (ch.get("values") or {}).get("mode") == "live":
+            tv = ctx.variants.get(ch["variant_id"])
+            if tv is not None and tv.account:
+                state.setdefault("live_accounts", {})[tv.id] = tv.account
         state["count"] += 1 if counted else 0
         if ch["change"] == "new_variant":
             state["new_variants"] += 1

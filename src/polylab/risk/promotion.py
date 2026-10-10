@@ -24,6 +24,9 @@ passes the owner's per-sport rule (n >= minimum, ROI and both halves (split at t
 >= the half minimum), and the observed sample does not contradict it (paper trades since the sport's last stake/mode
 event plus live trades on the current params — a sport the ladder demoted for live losses keeps that record; 80%
 two-sided bootstrap upper bound of the mean ROI/trade >= 0; fewer than 5 trades never contradict). Numbers the AI writes are never used.
+Account collision (2026-10-10, LTS on king/queen next to plum-king/queen): a paper→live flip of a paper-master variant
+turns its master live; if another variant whose master is already live holds the same account, `registry.load_all`
+would refuse the registry and every tick would stop — so `eligibility` (given the registry's variants) refuses it.
 Demotion (live→paper) stays with the stake ladder. Pure: no IO except `count_games` (read-only core.db query).
 """
 
@@ -153,8 +156,20 @@ def in_preseason(sport: str, ts: int) -> bool:
     return window[0] <= (d.month, d.day) <= window[1]
 
 
-def eligibility(v, sport: str, now: int, last_change_ts: int | None) -> str | None:
-    """Refusal reason, or None when the (variant, sport) may be considered."""
+def account_conflict(v, variants: Sequence | None) -> str | None:
+    """Refusal reason when making `v` live would put a second live variant on its account (registry.load_all raises
+    on that and the whole tick stops), else None. `variants`: the registry (None = not checked)."""
+    if not variants or not getattr(v, "account", None) or getattr(v, "mode", None) == "live":
+        return None
+    holders = sorted(o.id for o in variants if o.id != v.id and o.account == v.account and o.mode == "live")
+    if holders:
+        return f"account {v.account} already held by live variant(s) {holders}: a second live variant would stop every tick"
+    return None
+
+
+def eligibility(v, sport: str, now: int, last_change_ts: int | None, variants: Sequence | None = None) -> str | None:
+    """Refusal reason, or None when the (variant, sport) may be considered. `variants` (the registry) enables the
+    account-collision check."""
     if not getattr(v, "per_sport", False):
         return "not a per-sport variant"
     if sport not in v.sports:
@@ -166,6 +181,9 @@ def eligibility(v, sport: str, now: int, last_change_ts: int | None) -> str | No
         return f"{sport} own mode is {own}, not paper"
     if not v.account:
         return "no account"
+    clash = account_conflict(v, variants)
+    if clash:
+        return clash
     start = (v.sport_settings.get(sport) or {}).get("live_from")
     if start and _day(now) < dt.date.fromisoformat(str(start)):
         return f"live_from {start} is in the future"
@@ -200,11 +218,12 @@ def paper_stats(trades: Sequence[PaperTrade]) -> dict[str, Any]:
 
 
 def evaluate(v, sport: str, trades: Sequence[PaperTrade], now: int, last_change_ts: int | None,
-             backtest: dict | None = None, rule: SampleRule | None = None) -> Gate:
-    """`backtest`: {"n", "roi", "range": [start, end]} of the retro-run replay, {"error": ...}, or None (not run)."""
+             backtest: dict | None = None, rule: SampleRule | None = None, variants: Sequence | None = None) -> Gate:
+    """`backtest`: {"n", "roi", "range": [start, end]} of the retro-run replay, {"error": ...}, or None (not run).
+    `variants`: the registry, for the account-collision check."""
     vid = v.id
     rule = rule or sample_rule(sport)
-    why = eligibility(v, sport, now, last_change_ts)
+    why = eligibility(v, sport, now, last_change_ts, variants)
     if why:
         return Gate(vid, sport, False, "eligibility", why, {"last_change_ts": last_change_ts, "rule": rule.as_dict()})
     st = paper_stats(trades)
@@ -234,12 +253,12 @@ def evaluate(v, sport: str, trades: Sequence[PaperTrade], now: int, last_change_
 
 
 def evaluate_direct(v, sport: str, trades: Sequence[PaperTrade], now: int, last_change_ts: int | None,
-                    backtest: dict | None, rule: SampleRule | None = None) -> Gate:
+                    backtest: dict | None, rule: SampleRule | None = None, variants: Sequence | None = None) -> Gate:
     """AI-proposed paper→live (owner 2026-10-06 `promotion:ai-direct`): objective checks on the retro's own replay.
     `backtest`: {"n", "roi", "halves": [{"n", "roi"}, {"n", "roi"}], "range"} or {"error"} or None (not run)."""
     vid = v.id
     rule = rule or sample_rule(sport)
-    why = eligibility(v, sport, now, last_change_ts)
+    why = eligibility(v, sport, now, last_change_ts, variants)
     if why:
         return Gate(vid, sport, False, "eligibility", why, {"last_change_ts": last_change_ts, "rule": rule.as_dict(),
                                                            "path": "ai-direct"})

@@ -406,7 +406,7 @@ def live_evidence(proposals: list[tuple[str, dict]], vctx: Context, rules: Rules
         except Exception as exc:
             notes.append(f"live evidence {vid}/{sport}: paper sample failed: {exc}")
             continue
-        gate = promotion.evaluate_direct(v, sport, trades, now, last_change, None, rule)
+        gate = promotion.evaluate_direct(v, sport, trades, now, last_change, None, rule, list(vctx.variants.values()))
         if gate.stage in ("eligibility", "paper"):
             vctx.live_evidence[promotion_key(vid, sport)] = {**gate.as_dict()}
             notes.append(f"live evidence {vid}/{sport}: {gate.stage}: {gate.reason}")
@@ -425,7 +425,8 @@ def live_evidence(proposals: list[tuple[str, dict]], vctx: Context, rules: Rules
             result = env.backtest([(sim, {})], start, end, left)[0]
         except Exception as exc:
             result = {"error": f"{type(exc).__name__}: {exc}"[:300]}
-        gate = promotion.evaluate_direct(v, sport, trades, now, last_change, _replay_summary(result, start, end), rule)
+        gate = promotion.evaluate_direct(v, sport, trades, now, last_change, _replay_summary(result, start, end), rule,
+                                         list(vctx.variants.values()))
         vctx.live_evidence[promotion_key(vid, sport)] = {**gate.as_dict()}
         notes.append(f"live evidence {vid}/{sport}: {'pass' if gate.ok else 'fail'}: {gate.reason}")
     return notes
@@ -454,7 +455,7 @@ def promotion_gates(variants, vctx: Context, rules: Rules, env: Env, now: int,
             except Exception as exc:   # an unreadable ledger never promotes
                 env.say(f"promotion sample {v.id}/{sport} failed: {type(exc).__name__}: {exc}")
                 continue
-            gate = promotion.evaluate(v, sport, trades, now, last_change, rule=rule)
+            gate = promotion.evaluate(v, sport, trades, now, last_change, rule=rule, variants=list(variants))
             if gate.needs_backtest and rules.promotion_replay:
                 left = min(rules.promotion_budget_s - (time.time() - t0),
                            rules.backtest_soft_deadline_s - (time.time() - started))
@@ -471,7 +472,8 @@ def promotion_gates(variants, vctx: Context, rules: Rules, env: Env, now: int,
                     except Exception as exc:
                         result = {"error": f"{type(exc).__name__}: {exc}"[:300]}
                     gate = promotion.evaluate(v, sport, trades, now, last_change,
-                                              backtest=_replay_summary(result, start, end), rule=rule)
+                                              backtest=_replay_summary(result, start, end), rule=rule,
+                                              variants=list(variants))
             gates.append(gate)
     changes = []
     for g in gates:

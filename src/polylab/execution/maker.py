@@ -25,6 +25,12 @@ paid out-of-band by Polymarket and are not visible per trade, so they are not bo
 Paper: a resting BUY fills only when a REAL (non-synthetic) book observed after the order (and after its last
 fill) has asks strictly below our price — trade-through, queue position unknown — up to the depth through it;
 a SELL symmetric on bids. Fill delay is recorded (book ts - created_at). Paper therefore never flatters maker.
+Backtests over history without stored books (`polylab backtest --fill-model maker_bars`, 2026-10-10 LTS study) may
+also fill on SYNTHETIC books built from the 1-minute canonical bar: `synthetic_fills="mid"` fills a BUY only when a
+LATER bar is strictly below the limit (our bid on the book + a mid below it = a crossed book, i.e. a trade-through),
+`"ask"` only when the synthetic ask (bar + half spread) is below it (stricter: back of the queue). Fills book at the
+limit price. Live paper (no synthetic books) is unchanged. Synthetic books have no venue tick: `synthetic_tick` uses
+Polymarket's 0.001 step outside [0.04, 0.96], else 0.01.
 """
 
 from __future__ import annotations
@@ -41,6 +47,9 @@ from polylab.strategies.base import floor2
 
 DEFAULT_MIN_SHARES = 5.0
 DEFAULT_TICK = 0.01
+FINE_TICK = 0.001
+FINE_TICK_EDGE = 0.04
+SYNTHETIC_FILLS = (None, "mid", "ask")
 PAPER_BOOK_MAX_AGE_S = 900
 VENUE_DONE = {"MATCHED", "CANCELED", "CANCELLED", "CANCELED_MARKET_RESOLVED", "INVALID"}
 VENUE_CANCELLED = VENUE_DONE - {"MATCHED"}
@@ -69,6 +78,13 @@ class Poll:
 
 
 # ---------------------------------------------------------------- pricing
+
+def synthetic_tick(price: float | None) -> float:
+    """Deterministic tick for a synthetic (bar-derived) book: 0.001 near the extremes, else 0.01."""
+    if price is None:
+        return DEFAULT_TICK
+    return FINE_TICK if price < FINE_TICK_EDGE - 1e-9 or price > 1 - FINE_TICK_EDGE + 1e-9 else DEFAULT_TICK
+
 
 def own_removed(book: Book | None, side: str, price: float | None, shares: float) -> Book | None:
     """The live book minus our own resting quote (else the improve rule ratchets against itself)."""
@@ -215,10 +231,13 @@ class LiveVenue:
 class PaperVenue:
     mode = "paper"
 
-    def __init__(self, view, fee_lookup):
+    def __init__(self, view, fee_lookup, synthetic_fills: str | None = None):
+        if synthetic_fills not in SYNTHETIC_FILLS:
+            raise ValueError(f"synthetic_fills must be one of {SYNTHETIC_FILLS}")
         self.view = view
         self.fee_lookup = fee_lookup
         self.open_by_id = None
+        self.synthetic_fills = synthetic_fills     # None: never fill on synthetic books (live paper, plain backtest)
         self._ticks: dict[str, float] = {}
 
     def tick(self, token_id: str) -> float:
@@ -232,7 +251,9 @@ class PaperVenue:
     def book(self, token_id: str, now: int) -> Book | None:
         # pre-game Total 0.5 books are stored about every 10 min; 180 s left most pre-game minutes without a price
         b = self.view.book(token_id, now, max_age_s=PAPER_BOOK_MAX_AGE_S)
-        if b is not None:
+        if b is not None and b.synthetic:
+            self._ticks[token_id] = synthetic_tick(b.mid)
+        elif b is not None:
             fine = any(abs(p * 100 - round(p * 100)) > 1e-6 for p, _ in (b.bids or []) + (b.asks or []))
             self._ticks[token_id] = 0.001 if fine else DEFAULT_TICK
         return b
@@ -263,10 +284,17 @@ class PaperVenue:
             return Poll("done")
         book = self.view.book(order["token_id"], now, max_age_s=180)
         last = ledger_last_fill_ts(order)
-        if book is None or book.synthetic or book.ts <= max(int(order["created_at"]), last):
+        if book is None or book.ts <= max(int(order["created_at"]), last):
+            return Poll("live")
+        if book.synthetic and self.synthetic_fills is None:
             return Poll("live")
         px = float(order["limit_price"])
-        if order["side"] == "BUY":
+        buy = order["side"] == "BUY"
+        if book.synthetic:     # backtest bar model: deep synthetic levels, so a trade-through fills the remainder
+            ref = book.mid if self.synthetic_fills == "mid" else (book.best_ask if buy else book.best_bid)
+            hit = ref is not None and (ref < px - EPS if buy else ref > px + EPS)
+            through = remaining if hit else 0.0
+        elif buy:
             through = sum(s for p, s in book.asks if p < px - EPS)
         else:
             through = sum(s for p, s in book.bids if p > px + EPS)

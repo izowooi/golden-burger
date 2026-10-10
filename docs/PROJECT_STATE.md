@@ -20,6 +20,7 @@
 | RQ4 | 거래 단위(5→10→25→50→100 USDC)별 안정성 | 단위 ladder, `analysis/performance.py` |
 | 생애주기 장 | 축구 O/U 0.5 마켓의 Yes·No 매도 호가 합(=1+스프레드)과 Over 과대평가가 상장→킥오프→종료까지 어떻게 변하는가 | `data/ou05/`(O/U 0.5 만, 1분), `analysis/ou05.py`, `/ou05`, `docs/research/ou05-overround-study.md` |
 | 가설(10-06 저녁) | **막판 선두 수렴**: 무승부 없는 승패 마켓에서 경기 전 ≤ X 경기의 선두가 T 이후 Y 를 넘으면 Z 까지 오르는가(역전 확률 vs 가격). 결과: 대부분 구간은 calibration, 원안(언제든 0.80→0.96)은 전 종목 −2.4~−3.4%, 양수는 종목 정규 길이 끝 무렵(NFL·NHL)만 | core.db 1분 가격(2024~), `docs/research/hypothesis-late-leader-convergence.md`, `late-leader-paper` |
+| 가설(10-10) | **후반 임계 안정성(LTS)**: 진행 T(60·70·80·90%) 뒤 선두가 임계값 Y(0.60–0.99)에 들어오면 다시 떨어지거나 역전되는 일이 가격보다 드문가, 수수료 없는 지정가(매수호가 −1틱)로 사서 정산 보유하면 수익이 나는가. 결과: 보정은 대부분 맞고(유의 칸 11/199, 우연 수준), 지정가는 지는 경기에서 거의 100%·이기는 경기에서 23–70% 만 체결되는 역선택 때문에 거의 모든 칸에서 taker 보다 나쁘다. R1–R6 통과는 NFL 막판(170분·0.85–0.90)뿐이고 사전 등록 다중 비교 점검에서 실패 → 전 종목 paper | core.db 1분 가격, `analysis/lts.py`, `/lts`, `docs/research/hypothesis-lts.md`, `lts-king`·`lts-queen` |
 | 0:0 과소평가(10-10, **논문 핵심**) | 프론티어 AI(Claude Opus 5.5·GPT-6.1-Sol, 시장 가격 비공개·웹 조사)가 Polymarket 보다 0:0 을 더 정확히 맞추는가(못 맞추거나 같으면 실패). 두 AI 가 모두 0:0 안 날/날 경기로 고른 5대 리그·MLS·UCL·UEL·네이션스리그 경기의 Over/Under 0.5 정산 적중률 vs 평균 매수가(내재 확률). 지정가(수수료 0)·손절 없음·5 USDC 실거래(red) | `research/llm_forecasts.db` `ou05_picks`(사전 등록 픽, ITT 분모), `strategies/ai-ou05-red.db`, `docs/research/ai-ou05-study.md` |
 | (흡수됨) | 기존 LLM 0:0 예측 연구(v1, 10-02~10-09: Sonnet 4.6·추론 없는 GPT, AI 가 시장가를 봄)는 위 연구로 흡수 | `research/llm_forecasts.db`, `docs/research/llm-forecast-study.md` |
 
@@ -41,6 +42,7 @@
 | apricot-eco / fruit | eco / fruit | 경기 후반 선두 | **eco NFL live 5 USDC**(10-06 연구자 결정, 시작 ~190분 뒤 선두 0.80–0.99, 0.96 익절, 백테스트 +2.76%·103건). fruit NFL(손절 arm)과 나머지 종목 paper |
 | plum-king / queen | king / queen | 중간대 선두 추세, +0.03 조기 익절 | paper (paper ROI −3.0%·−0.9%, 연구자: live 금지, AI 실거래 경로 제외). 10-06 양수 탐색 88,680셀: NBA·NHL·MLB 없음. NFL 0.65–0.68·시작 60–120분·0.95 익절 셀(R1–R7 통과, 349건 +4.82%)을 paper 시험 중(queen 손절 없음, king 0.12). 축구 정산 보유 후보는 조기 익절 결정과 충돌해 보류 |
 | late-leader-paper | 없음 | 막판 선두 수렴(10-06 저녁 신설): 경기 전 정배 ≤ X, 시작 T분 뒤 선두가 Y 교차 → Z 익절. NFL 170분·0.88→0.98·≤0.70, NHL 160분·0.80→0.98·≤0.60, NBA·MLB 약한 후보 | 전 종목 paper(자금 있는 여유 계좌 없음 → attention `account:late-leader-paper`). NFL 은 apricot-eco 와 진입 경기 37% 겹침 |
+| lts-king / queen | king / queen(plum 과 같은 계좌, 둘 다 paper) | 후반 임계 안정성(10-10): 진행 T 뒤 선두가 [Y, Y+0.03] 에 들어오면 매수호가 한 틱 아래 지정가(maker, 수수료 0)로 걸고 재호가 없이 대기, 경기당 1회, 정산 보유. A/B = king 진행 80–90% 층 vs queen 60–70% 층의 H1 선택 칸(종목별) | 전 종목 paper(NFL king 170분·0.90 만 R1–R7 통과, 다중 비교 점검 실패 → attention `decision:lts-nfl-king-live`). AI 직접 live 경로 제외(`OWNER_NO_DIRECT_LIVE`), 결정론 게이트(새 paper 표본)만 |
 | cherry-blue / tiger | blue / tiger | 초기 개념: 종료 ~3일 전 0.9 매수→0.95 매도(전 카테고리) | paper (8만 조합 중 우위 없음) |
 | goal-over-all | lion | 주요 리그 축구 Over 0.5 를 킥오프 3일 전~5분 전 지정가 매수, +0.02 익절(AI 조정 가능)·−10% 손절·0.99 보유 | live 5 USDC, maker 주문 |
 | llm-nil-consensus / llm-nil-draw | – | Claude·ChatGPT 0:0 예측 합의 top-3 Over 0.5 | off(10-10 ai-ou05 로 흡수) |
@@ -61,6 +63,7 @@
 - 저장 예측 정상 상태 표본이 1일뿐이다(raw lean 은 10-06 부분 일). **2026-10-13 부터** attention `reminder:storage-7d-steady-state` 와 회고 Slack "알림"(3일)이 7일 정상 상태를 자동 보고한다 → 연구자가 decisions.md 로 닫는다.
 - late-leader: 계좌 배정 대기(attention `account:late-leader-paper`; 별칭을 받으면 yaml 에 연결). live 후보는 NFL 하나(R1–R7 통과). NHL 은 엔진 39건으로 n ≥ 40 에 1건 모자라고 120일 창 최대 16건이라 지금 규칙으로는 전환 불가(연구자 창 결정 필요). NBA·MLB 는 약한 후보. 2026-09-30 이후 `game_states` 점수로 "사건(득점) 뒤 교차" 정의와 비교할 표본을 쌓는 중.
 - ai-ou05-red(10-10~): 첫 리그 주말에 예측 실행 시간(40경기, Opus 5.5 high + GPT-6.1-Sol high 웹 조사, 엔진 3000초 제한)·픽 수·체결률 확인. 한 엔진이 시간 초과하면 그날 픽이 없다 → 경기 묶음 분할 필요 여부 판단. 필요 표본 대략 Over 650건·Under 150건(`docs/research/ai-ou05-study.md` 5절). AI vs 시장 Brier 분석(v2 만)과 결과별 체결률은 표본이 쌓이면 회고에 자동화.
+- LTS(10-10): lts-king·queen paper 표본으로 out-of-sample 확인(NFL king 이 핵심, 시즌당 약 60신호·40체결). 주간 회고 뒤 `analyze lts` 가 grid 를 다시 계산해 `/lts` 에 올린다. 연구자 결정 대기: `decision:lts-nfl-king-live`(NFL arm A live 여부). 경기 중 지정가 실측 결과는 `docs/research/api-sources.md` "In-play maker".
 - Mac mini Claude Code 는 2.1.295(10-10 업데이트). Opus 5.5 는 2.1.280 이상 필요.
 - O/U 0.5 생애 곡선: 2~3주 실시간 축적 후 판정(예비: 합 평균 7일+ 1.50 → 6~24시간 1.01).
 - watermelon NBA 첫 20건의 실제 손절 체결가로 합성 호가 백테스트 낙관 여부 확인.

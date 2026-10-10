@@ -39,11 +39,11 @@ jobs:
     pull: true
     command: "uv run --no-sync polylab retro daily"
   polylab-retro-weekly:
-    description: "주간 회고(월 08:30 KST): 백테스트 기반 파라미터 탐색·paper 변형 제안"
+    description: "주간 회고(월 08:30 KST): 백테스트 기반 파라미터 탐색·paper 변형 제안 → 이어서 LTS 연구 grid 재계산(analyze lts, 약 15분, 대시보드 /lts, 업로드는 polylab-publish)"
     cron: "TZ=Asia/Seoul\n30 8 * * 1"
     timeout_minutes: 150
     pull: true
-    command: "uv run --no-sync polylab retro weekly"
+    command: "rc=0; uv run --no-sync polylab retro weekly || rc=$?; uv run --no-sync polylab analyze lts || rc=$?; exit $rc"
   polylab-retro-monthly:
     description: "월간 회고(매월 1일 09:00 KST): 논문용 연구 요약 docs/research/monthly"
     cron: "TZ=Asia/Seoul\n0 9 1 * *"

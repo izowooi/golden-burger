@@ -19,6 +19,10 @@ and the paper maker simulation never fills on synthetic books, so a faithful mak
 `--fill-model auto` (default) therefore replays maker variants with TAKER fills as a proxy (output
 `fill_model: "taker_proxy"`; fees are charged, so it is pessimistic on cost and optimistic on fill rate) — enough to
 compare current vs proposed entry window / TP params; `--fill-model maker` runs the conservative maker simulation.
+`--fill-model maker_bars` (2026-10-10 LTS study; `auto` picks it for families with `backtest_fill_model =
+"maker_bars"`, e.g. lts, so the retro's replays score them as maker): resting entries also fill on synthetic books by
+strict trade-through of a LATER 1-minute bar (`--maker-through mid`: bar < limit; `ask`: bar + half spread < limit),
+at the limit price, fee-free (taker-only schedule — the forced `--fee-rate` still charges taker fills only).
 goal_over pre-game entry windows (`entry_minutes_before_max`) are simulated at a coarse >= 10-minute step (book
 cadence); in-game windows keep `--step`.
 `--fee-rate R` replaces every market's stored fee schedule with the taker schedule rate R (exponent 1, taker-only):
@@ -195,8 +199,22 @@ def _as_taker(variant) -> bool:
     return hit
 
 
+def family_fill_model(variant) -> str | None:
+    """The strategy family's own replay fill model (Strategy.backtest_fill_model), None = engine default."""
+    from polylab.strategies import FAMILIES  # noqa: PLC0415
+    cls = FAMILIES.get(variant.family)
+    return getattr(cls, "backtest_fill_model", None) if cls is not None else None
+
+
+def _uses_maker(variant) -> bool:
+    params = variant.params or {}
+    styles = [params.get("order_style")] + [o.get("order_style") for o in (params.get("sport_overrides") or {}).values()
+                                            if isinstance(o, dict)]
+    return any(str(s or "").lower() == "maker" for s in styles)
+
+
 def backtest(paths, variant, start: int, end: int, *, step: int = 60, spread: float = 0.01,
-             fill_model: str = "auto", fee_rate: float | None = None) -> dict[str, Any]:
+             fill_model: str = "auto", fee_rate: float | None = None, maker_through: str = "mid") -> dict[str, Any]:
     from polylab.engine.tick import run_variant           # engine imports stay local: engine is the heavier module
     from polylab.execution.ledger import open_ledger
     from polylab.execution.reconcile import settle_resolutions
@@ -212,7 +230,14 @@ def backtest(paths, variant, start: int, end: int, *, step: int = 60, spread: fl
     sim_variant = copy.copy(variant)
     sim_variant.mode = "paper"
     used_fill = "as_configured"
-    if fill_model in ("auto", "taker") and _as_taker(sim_variant):
+    if fill_model == "auto" and family_fill_model(variant) == "maker_bars" and _uses_maker(variant):
+        fill_model = "maker_bars"
+    if fill_model == "maker_bars":
+        if maker_through not in ("mid", "ask"):
+            raise ValueError("maker_through must be mid or ask")
+        view.maker_synthetic_fills = maker_through
+        used_fill = f"maker_bars_{maker_through}"
+    elif fill_model in ("auto", "taker") and _as_taker(sim_variant):
         used_fill = "taker_proxy"
     # per-sport variants: simulate every sport that is not off, whatever its live/paper mode
     sports = ([s for s in variant.sports if sim_variant.sport_mode(s) != "off"]
@@ -257,8 +282,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--step", type=int, default=None, help="seconds between simulated cycles (default 60; cherry 300)")
     ap.add_argument("--spread", type=float, default=0.01, help="synthetic spread when no stored book exists")
     ap.add_argument("--out", help="write JSON here instead of stdout")
-    ap.add_argument("--fill-model", choices=("auto", "maker", "taker"), default="auto",
-                    help="auto/taker: maker variants replay with taker fills (proxy); maker: conservative maker sim")
+    ap.add_argument("--fill-model", choices=("auto", "maker", "taker", "maker_bars"), default="auto",
+                    help="auto/taker: maker variants replay with taker fills (proxy) unless the family declares "
+                         "maker_bars; maker: conservative maker sim (stored books only); maker_bars: also fill on "
+                         "synthetic books by bar trade-through")
+    ap.add_argument("--maker-through", choices=("mid", "ask"), default="mid",
+                    help="maker_bars: bar < limit (mid) or bar + half spread < limit (ask, stricter)")
     ap.add_argument("--fee-rate", type=float, default=None,
                     help="force this taker fee rate on every market (default: stored schedules)")
     args = ap.parse_args(argv)
@@ -277,7 +306,8 @@ def main(argv: list[str] | None = None) -> int:
         variant.params = _merge(variant.params, json.loads(args.params))
     step = args.step or (300 if variant.family == "cherry" else 60)
     result = backtest(settings.paths(), variant, _parse_day(args.start), _parse_day(args.end),
-                      step=step, spread=args.spread, fill_model=args.fill_model, fee_rate=args.fee_rate)
+                      step=step, spread=args.spread, fill_model=args.fill_model, fee_rate=args.fee_rate,
+                      maker_through=args.maker_through)
     text = json.dumps(result, indent=1, sort_keys=True, default=str)
     if args.out:
         Path(args.out).write_text(text)

@@ -116,10 +116,19 @@ def snapshot(alias: str, variant_id: str | None = None, session=None, clob_facto
 
 
 def alias_variants() -> dict[str, str]:
+    """account alias -> the variant that trades it. Several variants may share an account (one live at most, the
+    rest paper): the live one names the account, else the last by id (the registry's file order, as before)."""
     try:
-        return {v.account: v.id for v in registry.load_all(include_off=True) if v.account}
+        variants = registry.load_all(include_off=True)
     except Exception:
         return {}
+    out: dict[str, str] = {}
+    owned = [v for v in variants if v.account]
+    # later writes win: the other variants in id order, then the live ones
+    for v in sorted((v for v in owned if v.mode != "live"), key=lambda v: v.id) + \
+            [v for v in owned if v.mode == "live"]:
+        out[v.account] = v.id
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:

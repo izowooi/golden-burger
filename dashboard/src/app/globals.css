@@ -285,6 +285,11 @@ tfoot td { border-top: 2px solid var(--axis); border-bottom: 0; }
 .game-pick { min-width: 0; max-width: 100%; flex: 1 1 260px; }
 .game-pick select { width: 100%; max-width: 100%; }
 .chart.mid { min-width: 460px; }
+.chart.lts-heat { max-width: 760px; min-width: 520px; }
+.chart.lts-heat text.val { fill: var(--ink); font-size: 12px; stroke: var(--surface); stroke-width: 3px; paint-order: stroke; }
+.chart.lts-heat text.val.low { fill: var(--muted); }
+.rules-ok { color: var(--pos); }
+.rules-no { color: var(--muted); }
 
 /* ---- attention inbox (/) ---- */
 .att { margin-bottom: 20px; }

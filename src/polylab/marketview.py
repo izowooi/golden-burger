@@ -245,6 +245,10 @@ class MarketView:
             return True
         return False
 
+    def game_over(self, g: Game, now: int) -> bool:
+        """Cancelled, ended (ended_at <= now) or — live view only — flagged ended/final/closed."""
+        return self._is_over(g, now)
+
     def live_games(self, now: int, sports: Iterable[str] | None = None,
                    max_age_hours: dict[str, float] | float | None = None) -> list[Game]:
         """Games that started at or before now, within the per-sport max age and not over."""

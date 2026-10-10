@@ -438,7 +438,7 @@ def run_variant(paths, variant, view: MarketView, now: int, *, mode: str, dry_ru
         if not dry_run:
             res.resolved = settle_resolutions(ledger, view, now, mode)
         venue = makermod.LiveVenue(executor.clob, executor.fee) if mode == "live" \
-            else makermod.PaperVenue(view, executor.fee)
+            else makermod.PaperVenue(view, executor.fee, getattr(view, "maker_synthetic_fills", None))
         maker_style = {s: strategy.order_style(s) == "maker" for s in (strategy.sports or [])}
         uses_maker = any(maker_style.values()) or bool(ledger.maker_orders(mode, active=False))
         if uses_maker and not dry_run:

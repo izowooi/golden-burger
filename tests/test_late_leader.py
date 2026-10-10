@@ -114,7 +114,7 @@ def test_reminders_activate_by_date_and_account():
     report = {"health": {"storage": storage},
               "variants": [{"id": "late-leader-paper", "account": None, "mode": "paper"}]}
     ids = {r["id"] for r in reminders.due(report, before)}
-    assert ids == {"account:late-leader-paper"}
+    assert "account:late-leader-paper" in ids and "reminder:storage-7d-steady-state" not in ids
     due = {r["id"]: r for r in reminders.due(report, on)}
     st = due["reminder:storage-7d-steady-state"]
     assert st["slack"] and "5.9GB/월" in st["detail"] and "최소 6일" in st["detail"]

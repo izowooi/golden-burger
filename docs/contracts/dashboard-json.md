@@ -350,6 +350,62 @@ kicked off in the last 30 days (resolved first, by volume); newest kickoff first
   bin's largest sum_ask. `src` `p` = poll row (bid/ask known), `h` = history row (only `over_mid`; others `null`).
 - `goals`: score increases from core.db `game_states` (only games the main collector tracks, since 2026-09-30); else `[]`.
 
+## latest/lts/summary.json
+Late threshold stability study (`docs/research/hypothesis-lts.md`, owner request 2026-10-10 `hypothesis:lts`), computed by
+`polylab analyze lts` (`src/polylab/analysis/lts.py`, weekly: chained after `polylab retro weekly` in the
+`polylab-retro-weekly` job) into `<research_dir>/lts/latest/`; `polylab publish` (`publish_lts`) only uploads changed
+files. Source = core.db 1-minute canonical bars and resolutions. Dashboard page `/lts` ("후반 안정성").
+```json
+{"generated_at": "2026-10-10T10:48:00Z", "doc": "docs/research/hypothesis-lts.md", "seconds": 700.0,
+ "constants": {"progress": [0.6, 0.7, 0.8, 0.9], "thresholds": [0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.97, 0.99],
+               "waits": ["5m", "30m", "end"], "delta": 0.03, "band_cap": 0.995, "floor_c": 0.05, "half_spread": 0.005,
+               "stress_half_spread": 0.01, "fresh_s": 120, "min_margin": 0.005, "min_volume_usd": 20000,
+               "stake_usdc": 5.0, "taker_fee_rate": 0.05, "soccer_leagues": ["epl", "..."],
+               "arms": {"king": [0.8, 0.9], "queen": [0.6, 0.7]},
+               "sport_cfg": {"nfl": {"median_min": 189.0, "hours_max": 6.0}}},
+ "notes": ["..."],
+ "sports": {"nfl": {"games": 632, "first_start": "...", "last_start": "...", "split": "2025-09-17T13:07:30Z",
+                    "rule": {"sport": "nfl", "lookback_days": 365, "backtest_min_n": 20, "backtest_min_half_n": 5, "...": "..."},
+                    "median_game_min_now": 188.6, "median_game_min_used": 189.0,
+                    "progress_minutes": {"60": 113, "70": 132, "80": 151, "90": 170},
+                    "passing_cells": 3, "r1_cells": 8,
+                    "mc": {"top": 20, "h2_median": -0.0509, "h2_nonneg": 6, "h2_n": 20},
+                    "arms": {"king": {"arm": "king", "progress": 0.9, "t_min": 170, "y": 0.9, "wait": "end",
+                                      "h1_score": 0.0498, "h2_roi": 0.0216, "rules": {"R1": true, "...": "..."},
+                                      "cell": {"...": "a grid cell without rules"}},
+                             "queen": null}}}}
+```
+- `split`: the sport's H1/H2 boundary (median scheduled start of the sample). `arms.<arm>`: the cell chosen with H1 data
+  only (max H1 neighbour-pooled maker ROI inside the arm's progress stratum); `null` when no cell has H1 fills.
+- `mc`: multiple-comparison check — H2 maker ROI of the 20 best H1 cells (H1 fills ≥ the half minimum).
+
+## latest/lts/grid-<sport>.json
+`sport` ∈ `soccer|mlb|nba|nfl|nhl`; 120 cells (4 progress × 10 thresholds × 3 waits).
+```json
+{"generated_at": "...", "sport": "nfl",
+ "cells": [{"progress": 0.9, "t_min": 170, "y": 0.9, "band": [0.9, 0.93], "wait": "end",
+            "signals": 196, "mean_price": 0.9136, "win_rate": 0.9643, "win_ci": [0.93, 0.98], "gap": 0.0507,
+            "gap_ci": [0.0145, 0.069], "rebreak_rate": 0.6684, "reversal_rate": 0.0357, "mdd_median": 0.0565,
+            "mdd_p90": 0.5145, "mdd_win_median": 0.04, "mdd_win_p90": 0.1, "median_wall": 172.0,
+            "taker": {"n": 196, "pnl": 40.1, "cost": 990.0, "roi": 0.0454, "h1": {"n": 0, "pnl": 0, "cost": 0, "roi": null},
+                      "h2": {"...": "..."}, "lo80": 0.02, "lo95": 0.01},
+            "main": {"n": 131, "pnl": 35.0, "cost": 655.0, "roi": 0.0534, "h1": {}, "h2": {}, "lo80": 0.026, "lo95": 0.017,
+                     "fill_rate": 0.6684, "fill_rate_win": 0.6561, "fill_rate_loss": 1.0, "fill_win_rate": 0.95,
+                     "mean_limit": 0.898, "collapse_fills": 3, "fill_wait_median_min": 4.0, "itt_pnl_per_signal": 0.18,
+                     "seasons": {"2024": {"n": 60, "roi": 0.05}}},
+            "spread02": {"...": "stats as taker"}, "strict": {"...": "stats as taker"},
+            "rules": {"R1": true, "R2": true, "R3": true, "R4": true, "R5": true, "R6": true, "sig95": true,
+                      "all_R1_R6": true, "neighbors": 3, "neighbors_ok": 2, "pooled_roi": 0.028}}]}
+```
+- Signal = first engine minute ≥ `t_min` with the leader inside `band`; one per game. Signal metrics (`signals`…`median_wall`)
+  do not depend on `wait`. `gap = win_rate − mean_price` (Wilson 95% CI shifted by the mean price; > 0 = leader under-priced).
+- `main`: maker model — limit = synthetic bid (bar − 0.005) − tick, filled only when a later bar is strictly below it
+  before the cancel (wait / game end), at the limit, fee 0; ROI per filled trade, `itt_pnl_per_signal` = Σ pnl / signals.
+  `fill_rate_win|loss` = P(fill | leader wins|loses). `collapse_fills` = fills on a bar ≤ 0.10.
+- `taker`: same signals bought at bar + 0.005 with the current taker fee 0.05 × shares × p × (1 − p).
+- `spread02` (hs 0.01) and `strict` (bar < limit − 0.005) are the R6 stresses. `lo80`/`lo95`: bootstrap 10th / 5th
+  percentile of the mean per-trade ROI. Halves/seasons as in the doc's pre-registration.
+
 ## Additive fields (beyond the examples above)
 - overview `strategies[].pnl_mode`: `live|paper` — which ledger `pnl`/`trades`/`win_rate`/`roi` come from (paper variants report paper ledgers).
 - overview `strategies[].per_sport` (bool) and `strategies[].sports_detail[]` (2026-10-05, owner decision `sports3:per-sport`):
