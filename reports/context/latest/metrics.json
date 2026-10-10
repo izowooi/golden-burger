@@ -1,16 +1,16 @@
 {
  "totals": {
-  "today": -0.33,
-  "d7": -7.9017,
-  "d30": -35.5524,
-  "all": -35.5524,
-  "tx_24h": 877,
-  "settled_24h": 2,
-  "settled_pnl_24h": -0.33,
-  "open_positions": 74,
-  "unrealized_pnl": -0.5166,
+  "today": -0.1996,
+  "d7": -12.4246,
+  "d30": -38.4182,
+  "all": -38.4182,
+  "tx_24h": 1169,
+  "settled_24h": 15,
+  "settled_pnl_24h": -3.1958,
+  "open_positions": 54,
+  "unrealized_pnl": 0.1119,
   "live_variants": 2,
-  "paper_variants": 9
+  "paper_variants": 11
  },
  "variants": {
   "ai-ou05-red": {
@@ -836,9 +836,9 @@
    "ladder": {
     "status": "hold",
     "action": "hold",
-    "trades_at_tier": 26,
+    "trades_at_tier": 30,
     "needed": 20,
-    "roi_ci_lo": 0.011337927059767133,
+    "roi_ci_lo": 0.012522166892941899,
     "next_stake_usdc": null,
     "promote_ok": false,
     "to_mode": "paper",
@@ -864,29 +864,29 @@
    },
    "paper": {
     "pnl": {
-     "today": 0.3763,
-     "d7": 1.9351,
-     "d30": 1.9351,
-     "all": 1.9351
+     "today": 0.3569,
+     "d7": 2.4044,
+     "d30": 2.4044,
+     "all": 2.4044
     },
     "trades": {
-     "all": 26,
-     "wins": 26,
+     "all": 30,
+     "wins": 30,
      "losses": 0
     },
     "win_rate": 1.0,
-    "roi": 0.0148,
-    "cost": 130.49,
-    "last_trade_at": "2026-10-10T06:12:00Z"
+    "roi": 0.016,
+    "cost": 150.56,
+    "last_trade_at": "2026-10-10T17:04:01Z"
    },
    "breakdown": {
     "by_sport": [
      {
       "key": "crypto",
-      "n": 14,
-      "pnl": 1.0437,
+      "n": 15,
+      "pnl": 1.1561,
       "win_rate": 1.0,
-      "roi": 0.0148
+      "roi": 0.0153
      },
      {
       "key": "culture",
@@ -910,6 +910,13 @@
       "roi": 0.0154
      },
      {
+      "key": "sports",
+      "n": 3,
+      "pnl": 0.3569,
+      "win_rate": 1.0,
+      "roi": 0.0237
+     },
+     {
       "key": "tech",
       "n": 3,
       "pnl": 0.2869,
@@ -928,10 +935,10 @@
     "by_stake": [
      {
       "key": "5",
-      "n": 26,
-      "pnl": 1.9351,
+      "n": 30,
+      "pnl": 2.4044,
       "win_rate": 1.0,
-      "roi": 0.0148
+      "roi": 0.016
      }
     ],
     "by_day": [
@@ -972,10 +979,17 @@
      },
      {
       "key": "2026-10-10",
-      "n": 4,
-      "pnl": 0.3763,
+      "n": 5,
+      "pnl": 0.4887,
       "win_rate": 1.0,
-      "roi": 0.0187
+      "roi": 0.0195
+     },
+     {
+      "key": "2026-10-11",
+      "n": 3,
+      "pnl": 0.3569,
+      "win_rate": 1.0,
+      "roi": 0.0237
      }
     ]
    },
@@ -1073,7 +1087,7 @@
    "live": {
     "pnl": {
      "today": 0.0,
-     "d7": 0.0178,
+     "d7": -0.8716,
      "d30": -2.5856,
      "all": -2.5856
     },
@@ -1459,32 +1473,32 @@
    },
    "ladder": {
     "status": "demote_warning",
-    "action": "hold",
-    "trades_at_tier": 30,
+    "action": "paper",
+    "trades_at_tier": 43,
     "needed": 20,
-    "roi_ci_lo": -0.04535331150539861,
+    "roi_ci_lo": -0.04783403435835378,
     "next_stake_usdc": null,
     "promote_ok": false,
-    "to_mode": "live",
-    "reason": "no gate met",
+    "to_mode": "paper",
+    "reason": "43 trades at floor with cumulative loss",
     "available": true
    },
    "live": {
     "pnl": {
-     "today": -0.33,
-     "d7": -3.8322,
-     "d30": -3.8322,
-     "all": -3.8322
+     "today": -0.1996,
+     "d7": -5.9471,
+     "d30": -6.698,
+     "all": -6.698
     },
     "trades": {
-     "all": 30,
-     "wins": 16,
-     "losses": 14
+     "all": 43,
+     "wins": 22,
+     "losses": 21
     },
-    "win_rate": 0.5333,
-    "roi": -0.0262,
-    "cost": 146.35,
-    "last_trade_at": "2026-10-09T21:02:00Z"
+    "win_rate": 0.5116,
+    "roi": -0.0317,
+    "cost": 211.3,
+    "last_trade_at": "2026-10-10T17:53:00Z"
    },
    "paper": {
     "pnl": {
@@ -1507,20 +1521,20 @@
     "by_sport": [
      {
       "key": "soccer",
-      "n": 30,
-      "pnl": -3.8322,
-      "win_rate": 0.5333,
-      "roi": -0.0262
+      "n": 43,
+      "pnl": -6.698,
+      "win_rate": 0.5116,
+      "roi": -0.0317
      }
     ],
     "by_entry_minute": [],
     "by_stake": [
      {
       "key": "5",
-      "n": 30,
-      "pnl": -3.8322,
-      "win_rate": 0.5333,
-      "roi": -0.0262
+      "n": 43,
+      "pnl": -6.698,
+      "win_rate": 0.5116,
+      "roi": -0.0317
      }
     ],
     "by_day": [
@@ -1561,10 +1575,17 @@
      },
      {
       "key": "2026-10-10",
-      "n": 2,
-      "pnl": -0.33,
-      "win_rate": 0.5,
-      "roi": -0.033
+      "n": 8,
+      "pnl": -2.9962,
+      "win_rate": 0.25,
+      "roi": -0.075
+     },
+     {
+      "key": "2026-10-11",
+      "n": 7,
+      "pnl": -0.1996,
+      "win_rate": 0.7143,
+      "roi": -0.0057
      }
     ]
    },
@@ -2131,6 +2152,458 @@
     "summary": "llm-nil-draw v1: 초기 버전 (init)"
    }
   },
+  "lts-king": {
+   "mode": "paper",
+   "account": "king",
+   "stake_usdc": 5.0,
+   "params": {
+    "leagues": [
+     "epl",
+     "lal",
+     "bun",
+     "sea",
+     "fl1",
+     "mls",
+     "ucl",
+     "uel",
+     "unl"
+    ],
+    "min_game_volume_usd": 20000,
+    "band_width": 0.03,
+    "band_cap": 0.995,
+    "floor_c": 0.05,
+    "min_leader_margin": 0.005,
+    "book_max_age_s": 120,
+    "order_style": "maker",
+    "maker_price_rule": "below",
+    "maker_ttl_minutes": 600,
+    "maker_reprice_ticks": 100,
+    "sport_overrides": {
+     "soccer": {
+      "min_wall_minute": 95,
+      "trigger_price": 0.99,
+      "max_wait_minutes": 30,
+      "hours_max": 3.0,
+      "min_game_volume_usd": 20000
+     },
+     "mlb": {
+      "min_wall_minute": 134,
+      "trigger_price": 0.99,
+      "max_wait_minutes": 5,
+      "hours_max": 6.0,
+      "min_game_volume_usd": 20000
+     },
+     "nba": {
+      "min_wall_minute": 119,
+      "trigger_price": 0.95,
+      "max_wait_minutes": 5,
+      "hours_max": 5.0,
+      "min_game_volume_usd": 20000
+     },
+     "nfl": {
+      "min_wall_minute": 170,
+      "trigger_price": 0.9,
+      "max_wait_minutes": null,
+      "hours_max": 6.0,
+      "min_game_volume_usd": 20000
+     },
+     "nhl": {
+      "min_wall_minute": 148,
+      "trigger_price": 0.97,
+      "max_wait_minutes": null,
+      "hours_max": 5.0,
+      "min_game_volume_usd": 20000
+     }
+    }
+   },
+   "bounds": {
+    "sport_overrides.soccer.min_wall_minute": [
+     60,
+     119,
+     12
+    ],
+    "sport_overrides.soccer.trigger_price": [
+     0.6,
+     0.99,
+     0.02
+    ],
+    "sport_overrides.soccer.max_wait_minutes": [
+     5,
+     90,
+     5
+    ],
+    "sport_overrides.soccer.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.mlb.min_wall_minute": [
+     84,
+     168,
+     17
+    ],
+    "sport_overrides.mlb.trigger_price": [
+     0.6,
+     0.99,
+     0.02
+    ],
+    "sport_overrides.mlb.max_wait_minutes": [
+     5,
+     90,
+     5
+    ],
+    "sport_overrides.mlb.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nba.min_wall_minute": [
+     74,
+     149,
+     15
+    ],
+    "sport_overrides.nba.trigger_price": [
+     0.6,
+     0.99,
+     0.02
+    ],
+    "sport_overrides.nba.max_wait_minutes": [
+     5,
+     90,
+     5
+    ],
+    "sport_overrides.nba.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nfl.min_wall_minute": [
+     94,
+     189,
+     19
+    ],
+    "sport_overrides.nfl.trigger_price": [
+     0.6,
+     0.99,
+     0.02
+    ],
+    "sport_overrides.nfl.max_wait_minutes": [
+     5,
+     90,
+     5
+    ],
+    "sport_overrides.nfl.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nhl.min_wall_minute": [
+     82,
+     164,
+     16
+    ],
+    "sport_overrides.nhl.trigger_price": [
+     0.6,
+     0.99,
+     0.02
+    ],
+    "sport_overrides.nhl.max_wait_minutes": [
+     5,
+     90,
+     5
+    ],
+    "sport_overrides.nhl.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ]
+   },
+   "ladder": {
+    "status": "hold",
+    "action": "hold",
+    "trades_at_tier": 0,
+    "needed": 20,
+    "roi_ci_lo": null,
+    "next_stake_usdc": null,
+    "promote_ok": false,
+    "to_mode": "paper",
+    "reason": "not live",
+    "available": true
+   },
+   "live": {
+    "pnl": {
+     "today": 0.0,
+     "d7": 0.0,
+     "d30": 0.0,
+     "all": 0.0
+    },
+    "trades": {
+     "all": 0,
+     "wins": 0,
+     "losses": 0
+    },
+    "win_rate": null,
+    "roi": null,
+    "cost": 0.0,
+    "last_trade_at": null
+   },
+   "paper": {
+    "pnl": {
+     "today": 0.0,
+     "d7": 0.0,
+     "d30": 0.0,
+     "all": 0.0
+    },
+    "trades": {
+     "all": 0,
+     "wins": 0,
+     "losses": 0
+    },
+    "win_rate": null,
+    "roi": null,
+    "cost": 0.0,
+    "last_trade_at": null
+   },
+   "breakdown": {
+    "by_sport": [],
+    "by_entry_minute": [],
+    "by_stake": [],
+    "by_day": []
+   },
+   "excluded": {},
+   "last_change": {
+    "at": "2026-10-10T12:04:34Z",
+    "summary": "lts-king v1: 초기 버전 (init)"
+   }
+  },
+  "lts-queen": {
+   "mode": "paper",
+   "account": "queen",
+   "stake_usdc": 5.0,
+   "params": {
+    "leagues": [
+     "epl",
+     "lal",
+     "bun",
+     "sea",
+     "fl1",
+     "mls",
+     "ucl",
+     "uel",
+     "unl"
+    ],
+    "min_game_volume_usd": 20000,
+    "band_width": 0.03,
+    "band_cap": 0.995,
+    "floor_c": 0.05,
+    "min_leader_margin": 0.005,
+    "book_max_age_s": 120,
+    "order_style": "maker",
+    "maker_price_rule": "below",
+    "maker_ttl_minutes": 600,
+    "maker_reprice_ticks": 100,
+    "sport_overrides": {
+     "soccer": {
+      "min_wall_minute": 83,
+      "trigger_price": 0.99,
+      "max_wait_minutes": null,
+      "hours_max": 3.0,
+      "min_game_volume_usd": 20000
+     },
+     "mlb": {
+      "min_wall_minute": 118,
+      "trigger_price": 0.99,
+      "max_wait_minutes": 5,
+      "hours_max": 6.0,
+      "min_game_volume_usd": 20000
+     },
+     "nba": {
+      "min_wall_minute": 104,
+      "trigger_price": 0.95,
+      "max_wait_minutes": 5,
+      "hours_max": 5.0,
+      "min_game_volume_usd": 20000
+     },
+     "nfl": {
+      "min_wall_minute": 113,
+      "trigger_price": 0.6,
+      "max_wait_minutes": 30,
+      "hours_max": 6.0,
+      "min_game_volume_usd": 20000
+     },
+     "nhl": {
+      "min_wall_minute": 98,
+      "trigger_price": 0.99,
+      "max_wait_minutes": null,
+      "hours_max": 5.0,
+      "min_game_volume_usd": 20000
+     }
+    }
+   },
+   "bounds": {
+    "sport_overrides.soccer.min_wall_minute": [
+     60,
+     119,
+     12
+    ],
+    "sport_overrides.soccer.trigger_price": [
+     0.6,
+     0.99,
+     0.02
+    ],
+    "sport_overrides.soccer.max_wait_minutes": [
+     5,
+     90,
+     5
+    ],
+    "sport_overrides.soccer.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.mlb.min_wall_minute": [
+     84,
+     168,
+     17
+    ],
+    "sport_overrides.mlb.trigger_price": [
+     0.6,
+     0.99,
+     0.02
+    ],
+    "sport_overrides.mlb.max_wait_minutes": [
+     5,
+     90,
+     5
+    ],
+    "sport_overrides.mlb.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nba.min_wall_minute": [
+     74,
+     149,
+     15
+    ],
+    "sport_overrides.nba.trigger_price": [
+     0.6,
+     0.99,
+     0.02
+    ],
+    "sport_overrides.nba.max_wait_minutes": [
+     5,
+     90,
+     5
+    ],
+    "sport_overrides.nba.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nfl.min_wall_minute": [
+     94,
+     189,
+     19
+    ],
+    "sport_overrides.nfl.trigger_price": [
+     0.6,
+     0.99,
+     0.02
+    ],
+    "sport_overrides.nfl.max_wait_minutes": [
+     5,
+     90,
+     5
+    ],
+    "sport_overrides.nfl.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nhl.min_wall_minute": [
+     82,
+     164,
+     16
+    ],
+    "sport_overrides.nhl.trigger_price": [
+     0.6,
+     0.99,
+     0.02
+    ],
+    "sport_overrides.nhl.max_wait_minutes": [
+     5,
+     90,
+     5
+    ],
+    "sport_overrides.nhl.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ]
+   },
+   "ladder": {
+    "status": "hold",
+    "action": "hold",
+    "trades_at_tier": 0,
+    "needed": 20,
+    "roi_ci_lo": null,
+    "next_stake_usdc": null,
+    "promote_ok": false,
+    "to_mode": "paper",
+    "reason": "not live",
+    "available": true
+   },
+   "live": {
+    "pnl": {
+     "today": 0.0,
+     "d7": 0.0,
+     "d30": 0.0,
+     "all": 0.0
+    },
+    "trades": {
+     "all": 0,
+     "wins": 0,
+     "losses": 0
+    },
+    "win_rate": null,
+    "roi": null,
+    "cost": 0.0,
+    "last_trade_at": null
+   },
+   "paper": {
+    "pnl": {
+     "today": 0.0,
+     "d7": 0.0,
+     "d30": 0.0,
+     "all": 0.0
+    },
+    "trades": {
+     "all": 0,
+     "wins": 0,
+     "losses": 0
+    },
+    "win_rate": null,
+    "roi": null,
+    "cost": 0.0,
+    "last_trade_at": null
+   },
+   "breakdown": {
+    "by_sport": [],
+    "by_entry_minute": [],
+    "by_stake": [],
+    "by_day": []
+   },
+   "excluded": {
+    "quarantined": 0,
+    "closed_without_pnl": 0,
+    "live_without_confirmed_buy": 0
+   },
+   "last_change": {
+    "at": "2026-10-10T12:05:04Z",
+    "summary": "lts-queen v1: 초기 버전 (init)"
+   }
+  },
   "plum-king": {
    "mode": "paper",
    "account": "king",
@@ -2433,9 +2906,9 @@
    "ladder": {
     "status": "demote_warning",
     "action": "hold",
-    "trades_at_tier": 14,
+    "trades_at_tier": 22,
     "needed": 20,
-    "roi_ci_lo": -0.11424816453791939,
+    "roi_ci_lo": -0.0972526223759861,
     "next_stake_usdc": null,
     "promote_ok": false,
     "to_mode": "paper",
@@ -2461,20 +2934,20 @@
    },
    "paper": {
     "pnl": {
-     "today": 2.2017,
-     "d7": -11.5811,
-     "d30": -11.5811,
-     "all": -11.5811
+     "today": -2.6901,
+     "d7": -12.7661,
+     "d30": -13.4388,
+     "all": -13.4388
     },
     "trades": {
-     "all": 68,
-     "wins": 35,
-     "losses": 33
+     "all": 76,
+     "wins": 39,
+     "losses": 37
     },
-    "win_rate": 0.5147,
-    "roi": -0.0338,
-    "cost": 342.99,
-    "last_trade_at": "2026-10-10T02:06:03Z"
+    "win_rate": 0.5132,
+    "roi": -0.035,
+    "cost": 383.54,
+    "last_trade_at": "2026-10-10T17:42:00Z"
    },
    "breakdown": {
     "by_sport": [
@@ -2508,33 +2981,33 @@
      },
      {
       "key": "soccer",
-      "n": 14,
-      "pnl": -3.0019,
-      "win_rate": 0.6429,
-      "roi": -0.0423
+      "n": 22,
+      "pnl": -4.8596,
+      "win_rate": 0.5909,
+      "roi": -0.0436
      }
     ],
     "by_entry_minute": [
      {
       "key": "0-15",
-      "n": 29,
-      "pnl": -6.6607,
-      "win_rate": 0.4828,
-      "roi": -0.0455
+      "n": 34,
+      "pnl": -10.5355,
+      "win_rate": 0.4412,
+      "roi": -0.0614
      },
      {
       "key": "15-30",
-      "n": 22,
-      "pnl": -2.5982,
-      "win_rate": 0.5455,
-      "roi": -0.0234
+      "n": 24,
+      "pnl": -1.5456,
+      "win_rate": 0.5833,
+      "roi": -0.0128
      },
      {
       "key": "30-45",
-      "n": 13,
-      "pnl": -2.8564,
-      "win_rate": 0.4615,
-      "roi": -0.0436
+      "n": 14,
+      "pnl": -1.892,
+      "win_rate": 0.5,
+      "roi": -0.0268
      },
      {
       "key": "45-60",
@@ -2547,10 +3020,10 @@
     "by_stake": [
      {
       "key": "5",
-      "n": 68,
-      "pnl": -11.5811,
-      "win_rate": 0.5147,
-      "roi": -0.0338
+      "n": 76,
+      "pnl": -13.4388,
+      "win_rate": 0.5132,
+      "roi": -0.035
      }
     ],
     "by_day": [
@@ -2605,10 +3078,17 @@
      },
      {
       "key": "2026-10-10",
+      "n": 8,
+      "pnl": 3.0341,
+      "win_rate": 0.875,
+      "roi": 0.0749
+     },
+     {
+      "key": "2026-10-11",
       "n": 4,
-      "pnl": 2.2017,
-      "win_rate": 1.0,
-      "roi": 0.1088
+      "pnl": -2.6901,
+      "win_rate": 0.25,
+      "roi": -0.1327
      }
     ]
    },
@@ -2924,9 +3404,9 @@
    "ladder": {
     "status": "demote_warning",
     "action": "hold",
-    "trades_at_tier": 14,
+    "trades_at_tier": 22,
     "needed": 20,
-    "roi_ci_lo": -0.09644191196226275,
+    "roi_ci_lo": -0.06904797865158131,
     "next_stake_usdc": null,
     "promote_ok": false,
     "to_mode": "paper",
@@ -2952,20 +3432,20 @@
    },
    "paper": {
     "pnl": {
-     "today": 2.2017,
-     "d7": -14.8667,
-     "d30": -14.8667,
-     "all": -14.8667
+     "today": -0.6856,
+     "d7": -14.3921,
+     "d30": -15.0648,
+     "all": -15.0648
     },
     "trades": {
-     "all": 69,
-     "wins": 40,
-     "losses": 29
+     "all": 77,
+     "wins": 46,
+     "losses": 31
     },
-    "win_rate": 0.5797,
-    "roi": -0.0427,
-    "cost": 347.95,
-    "last_trade_at": "2026-10-10T02:06:03Z"
+    "win_rate": 0.5974,
+    "roi": -0.0388,
+    "cost": 388.51,
+    "last_trade_at": "2026-10-10T17:42:00Z"
    },
    "breakdown": {
     "by_sport": [
@@ -2999,33 +3479,33 @@
      },
      {
       "key": "soccer",
-      "n": 14,
-      "pnl": -1.5304,
-      "win_rate": 0.7143,
-      "roi": -0.0216
+      "n": 22,
+      "pnl": -1.7285,
+      "win_rate": 0.7273,
+      "roi": -0.0155
      }
     ],
     "by_entry_minute": [
      {
       "key": "0-15",
-      "n": 30,
-      "pnl": -6.6502,
-      "win_rate": 0.5667,
-      "roi": -0.044
+      "n": 35,
+      "pnl": -8.8654,
+      "win_rate": 0.5714,
+      "roi": -0.0502
      },
      {
       "key": "15-30",
-      "n": 22,
-      "pnl": -7.4013,
-      "win_rate": 0.5909,
-      "roi": -0.0667
+      "n": 24,
+      "pnl": -6.3486,
+      "win_rate": 0.625,
+      "roi": -0.0525
      },
      {
       "key": "30-45",
-      "n": 13,
-      "pnl": -1.3495,
-      "win_rate": 0.5385,
-      "roi": -0.0206
+      "n": 14,
+      "pnl": -0.385,
+      "win_rate": 0.5714,
+      "roi": -0.0055
      },
      {
       "key": "45-60",
@@ -3038,10 +3518,10 @@
     "by_stake": [
      {
       "key": "5",
-      "n": 69,
-      "pnl": -14.8667,
-      "win_rate": 0.5797,
-      "roi": -0.0427
+      "n": 77,
+      "pnl": -15.0648,
+      "win_rate": 0.5974,
+      "roi": -0.0388
      }
     ],
     "by_day": [
@@ -3096,10 +3576,17 @@
      },
      {
       "key": "2026-10-10",
+      "n": 8,
+      "pnl": 2.6892,
+      "win_rate": 0.875,
+      "roi": 0.0664
+     },
+     {
+      "key": "2026-10-11",
       "n": 4,
-      "pnl": 2.2017,
-      "win_rate": 1.0,
-      "roi": 0.1088
+      "pnl": -0.6856,
+      "win_rate": 0.75,
+      "roi": -0.0338
      }
     ]
    },
@@ -3593,9 +4080,9 @@
    "ladder": {
     "status": "demote_warning",
     "action": "hold",
-    "trades_at_tier": 15,
+    "trades_at_tier": 32,
     "needed": 20,
-    "roi_ci_lo": -0.1267026643556435,
+    "roi_ci_lo": -0.08733287923002869,
     "next_stake_usdc": null,
     "promote_ok": false,
     "to_mode": "paper",
@@ -3605,7 +4092,7 @@
    "live": {
     "pnl": {
      "today": 0.0,
-     "d7": -1.7625,
+     "d7": -2.3825,
      "d30": -6.1949,
      "all": -6.1949
     },
@@ -3621,20 +4108,20 @@
    },
    "paper": {
     "pnl": {
-     "today": -2.9095,
-     "d7": 1.6592,
-     "d30": 1.6592,
-     "all": 1.6592
+     "today": -2.6206,
+     "d7": -0.7628,
+     "d30": -0.7628,
+     "all": -0.7628
     },
     "trades": {
-     "all": 54,
-     "wins": 52,
-     "losses": 2
+     "all": 71,
+     "wins": 68,
+     "losses": 3
     },
-    "win_rate": 0.963,
-    "roi": 0.0061,
-    "cost": 270.48,
-    "last_trade_at": "2026-10-10T03:01:59Z"
+    "win_rate": 0.9577,
+    "roi": -0.0021,
+    "cost": 355.69,
+    "last_trade_at": "2026-10-10T18:19:02Z"
    },
    "breakdown": {
     "by_sport": [
@@ -3668,10 +4155,10 @@
      },
      {
       "key": "soccer",
-      "n": 15,
-      "pnl": -3.7847,
-      "win_rate": 0.8667,
-      "roi": -0.0503
+      "n": 32,
+      "pnl": -6.2067,
+      "win_rate": 0.9062,
+      "roi": -0.0387
      }
     ],
     "by_entry_minute": [
@@ -3684,54 +4171,54 @@
      },
      {
       "key": "15-30",
-      "n": 6,
-      "pnl": 0.6875,
+      "n": 7,
+      "pnl": 0.7588,
       "win_rate": 1.0,
-      "roi": 0.0229
+      "roi": 0.0216
      },
      {
       "key": "30-45",
-      "n": 17,
-      "pnl": 2.5254,
+      "n": 18,
+      "pnl": 2.6063,
       "win_rate": 1.0,
-      "roi": 0.0297
+      "roi": 0.0289
      },
      {
       "key": "45-60",
-      "n": 14,
-      "pnl": 1.9066,
+      "n": 15,
+      "pnl": 1.9534,
       "win_rate": 1.0,
-      "roi": 0.0272
+      "roi": 0.026
      },
      {
       "key": "60-75",
-      "n": 2,
-      "pnl": -1.7723,
-      "win_rate": 0.5,
-      "roi": -0.1767
+      "n": 3,
+      "pnl": -1.701,
+      "win_rate": 0.6667,
+      "roi": -0.1131
      },
      {
       "key": "75-90",
-      "n": 3,
-      "pnl": 0.5981,
-      "win_rate": 1.0,
-      "roi": 0.0398
+      "n": 8,
+      "pnl": -3.1849,
+      "win_rate": 0.875,
+      "roi": -0.0794
      },
      {
       "key": "90-105",
-      "n": 5,
-      "pnl": -3.0991,
-      "win_rate": 0.8,
-      "roi": -0.1236
+      "n": 12,
+      "pnl": -2.1455,
+      "win_rate": 0.9167,
+      "roi": -0.0357
      }
     ],
     "by_stake": [
      {
       "key": "5",
-      "n": 54,
-      "pnl": 1.6592,
-      "win_rate": 0.963,
-      "roi": 0.0061
+      "n": 71,
+      "pnl": -0.7628,
+      "win_rate": 0.9577,
+      "roi": -0.0021
      }
     ],
     "by_day": [
@@ -3765,10 +4252,17 @@
      },
      {
       "key": "2026-10-10",
-      "n": 5,
-      "pnl": -2.9095,
-      "win_rate": 0.8,
-      "roi": -0.1161
+      "n": 7,
+      "pnl": -2.7109,
+      "win_rate": 0.8571,
+      "roi": -0.0772
+     },
+     {
+      "key": "2026-10-11",
+      "n": 15,
+      "pnl": -2.6206,
+      "win_rate": 0.9333,
+      "roi": -0.0349
      }
     ]
    },
@@ -4034,9 +4528,9 @@
    "ladder": {
     "status": "demote_warning",
     "action": "hold",
-    "trades_at_tier": 15,
+    "trades_at_tier": 32,
     "needed": 20,
-    "roi_ci_lo": -0.11745015826423649,
+    "roi_ci_lo": -0.076533537157559,
     "next_stake_usdc": null,
     "promote_ok": false,
     "to_mode": "paper",
@@ -4046,7 +4540,7 @@
    "live": {
     "pnl": {
      "today": 0.0,
-     "d7": -1.0685,
+     "d7": -1.9671,
      "d30": -2.5209,
      "all": -2.5209
     },
@@ -4062,20 +4556,20 @@
    },
    "paper": {
     "pnl": {
-     "today": -2.9044,
-     "d7": -2.1593,
-     "d30": -2.1593,
-     "all": -2.1593
+     "today": -1.9181,
+     "d7": -3.6033,
+     "d30": -3.6033,
+     "all": -3.6033
     },
     "trades": {
-     "all": 54,
-     "wins": 51,
-     "losses": 3
+     "all": 71,
+     "wins": 67,
+     "losses": 4
     },
-    "win_rate": 0.9444,
-    "roi": -0.008,
-    "cost": 270.46,
-    "last_trade_at": "2026-10-10T02:39:00Z"
+    "win_rate": 0.9437,
+    "roi": -0.0101,
+    "cost": 355.68,
+    "last_trade_at": "2026-10-10T18:19:02Z"
    },
    "breakdown": {
     "by_sport": [
@@ -4109,10 +4603,10 @@
      },
      {
       "key": "soccer",
-      "n": 15,
-      "pnl": -2.8949,
-      "win_rate": 0.8667,
-      "roi": -0.0385
+      "n": 32,
+      "pnl": -4.3389,
+      "win_rate": 0.9062,
+      "roi": -0.027
      }
     ],
     "by_entry_minute": [
@@ -4125,54 +4619,54 @@
      },
      {
       "key": "15-30",
-      "n": 6,
-      "pnl": 0.3256,
+      "n": 7,
+      "pnl": 0.5092,
       "win_rate": 1.0,
-      "roi": 0.0108
+      "roi": 0.0145
      },
      {
       "key": "30-45",
-      "n": 16,
-      "pnl": 0.9529,
+      "n": 17,
+      "pnl": 1.1047,
       "win_rate": 1.0,
-      "roi": 0.0119
+      "roi": 0.013
      },
      {
       "key": "45-60",
-      "n": 15,
-      "pnl": -0.226,
-      "win_rate": 0.9333,
-      "roi": -0.003
+      "n": 16,
+      "pnl": -0.1791,
+      "win_rate": 0.9375,
+      "roi": -0.0022
      },
      {
       "key": "60-75",
-      "n": 2,
-      "pnl": -1.7723,
-      "win_rate": 0.5,
-      "roi": -0.1767
+      "n": 3,
+      "pnl": -1.5718,
+      "win_rate": 0.6667,
+      "roi": -0.1045
      },
      {
       "key": "75-90",
-      "n": 3,
-      "pnl": 0.758,
-      "win_rate": 1.0,
-      "roi": 0.0504
+      "n": 8,
+      "pnl": -2.6384,
+      "win_rate": 0.875,
+      "roi": -0.0658
      },
      {
       "key": "90-105",
-      "n": 5,
-      "pnl": -2.7531,
-      "win_rate": 0.8,
-      "roi": -0.1098
+      "n": 12,
+      "pnl": -1.5757,
+      "win_rate": 0.9167,
+      "roi": -0.0262
      }
     ],
     "by_stake": [
      {
       "key": "5",
-      "n": 54,
-      "pnl": -2.1593,
-      "win_rate": 0.9444,
-      "roi": -0.008
+      "n": 71,
+      "pnl": -3.6033,
+      "win_rate": 0.9437,
+      "roi": -0.0101
      }
     ],
     "by_day": [
@@ -4206,10 +4700,17 @@
      },
      {
       "key": "2026-10-10",
-      "n": 5,
-      "pnl": -2.9044,
-      "win_rate": 0.8,
-      "roi": -0.1159
+      "n": 7,
+      "pnl": -2.4304,
+      "win_rate": 0.8571,
+      "roi": -0.0692
+     },
+     {
+      "key": "2026-10-11",
+      "n": 15,
+      "pnl": -1.9181,
+      "win_rate": 0.9333,
+      "roi": -0.0255
      }
     ]
    },
@@ -4468,12 +4969,12 @@
   {
    "tier_usdc": 5.0,
    "variants": 8,
-   "trades": 150,
-   "pnl": -35.5524,
-   "roi": -0.0475,
-   "pnl_std": 0.9578,
+   "trades": 163,
+   "pnl": -38.4181,
+   "roi": -0.0472,
+   "pnl_std": 0.9247,
    "max_drawdown": 40.2893,
-   "sharpe_like": -0.2455
+   "sharpe_like": -0.2531
   }
  ],
  "research": {
@@ -7877,8 +8378,8 @@
   ]
  },
  "events": {
-  "generated_at": "2026-10-09T18:32:05Z",
-  "measured": 2410,
+  "generated_at": "2026-10-10T18:32:08Z",
+  "measured": 2554,
   "event_sensitivity": [
    {
     "sport": "mlb",
@@ -7944,76 +8445,76 @@
     "sport": "nba",
     "event": "score",
     "minute_bucket": "0-12",
-    "n": 492,
-    "n_isolated": 11,
-    "mean_abs_jump": 0.0373,
+    "n": 510,
+    "n_isolated": 12,
+    "mean_abs_jump": 0.0374,
     "median_jump": 0.02,
-    "mean_jump": 0.0212,
-    "mean_pre_price": 0.5054,
-    "reversion_1m": 0.0023,
-    "reversion_5m": 0.0024,
+    "mean_jump": 0.0214,
+    "mean_pre_price": 0.5042,
+    "reversion_1m": 0.0025,
+    "reversion_5m": 0.0027,
     "reversion_10m": -0.0003,
-    "mean_peak_minute": 4.6321
+    "mean_peak_minute": 4.6706
    },
    {
     "sport": "nba",
     "event": "score",
     "minute_bucket": "12-24",
-    "n": 407,
-    "n_isolated": 24,
+    "n": 421,
+    "n_isolated": 25,
     "mean_abs_jump": 0.0389,
     "median_jump": 0.02,
-    "mean_jump": 0.0218,
-    "mean_pre_price": 0.5181,
-    "reversion_1m": 0.0005,
-    "reversion_5m": 0.004,
-    "reversion_10m": 0.005,
-    "mean_peak_minute": 4.6388
+    "mean_jump": 0.0223,
+    "mean_pre_price": 0.5183,
+    "reversion_1m": 0.0007,
+    "reversion_5m": 0.0042,
+    "reversion_10m": 0.0055,
+    "mean_peak_minute": 4.6532
    },
    {
     "sport": "nba",
     "event": "score",
     "minute_bucket": "24-36",
-    "n": 327,
-    "n_isolated": 26,
-    "mean_abs_jump": 0.0475,
+    "n": 340,
+    "n_isolated": 28,
+    "mean_abs_jump": 0.0492,
     "median_jump": 0.03,
-    "mean_jump": 0.0367,
-    "mean_pre_price": 0.4517,
-    "reversion_1m": 0.0022,
-    "reversion_5m": 0.0062,
-    "reversion_10m": 0.0086,
-    "mean_peak_minute": 5.4465
+    "mean_jump": 0.0386,
+    "mean_pre_price": 0.4512,
+    "reversion_1m": 0.0027,
+    "reversion_5m": 0.0075,
+    "reversion_10m": 0.0092,
+    "mean_peak_minute": 5.4265
    },
    {
     "sport": "nba",
     "event": "score",
     "minute_bucket": "36-48",
-    "n": 354,
-    "n_isolated": 25,
-    "mean_abs_jump": 0.0547,
-    "median_jump": 0.0075,
-    "mean_jump": 0.0395,
-    "mean_pre_price": 0.5343,
-    "reversion_1m": 0.0031,
-    "reversion_5m": 0.0054,
-    "reversion_10m": 0.0045,
-    "mean_peak_minute": 4.3164
+    "n": 362,
+    "n_isolated": 27,
+    "mean_abs_jump": 0.0551,
+    "median_jump": 0.009,
+    "mean_jump": 0.0402,
+    "mean_pre_price": 0.5324,
+    "reversion_1m": 0.0027,
+    "reversion_5m": 0.0042,
+    "reversion_10m": 0.0036,
+    "mean_peak_minute": 4.3066
    },
    {
     "sport": "nba",
     "event": "score",
     "minute_bucket": "48+",
-    "n": 5,
-    "n_isolated": 2,
-    "mean_abs_jump": 0.027,
-    "median_jump": 0.0,
-    "mean_jump": 0.0148,
-    "mean_pre_price": 0.5831,
-    "reversion_1m": 0.0011,
-    "reversion_5m": 0.002,
-    "reversion_10m": 0.002,
-    "mean_peak_minute": 1.2
+    "n": 6,
+    "n_isolated": 3,
+    "mean_abs_jump": 0.0358,
+    "median_jump": 0.0048,
+    "mean_jump": 0.0257,
+    "mean_pre_price": 0.6384,
+    "reversion_1m": 0.0017,
+    "reversion_5m": 0.0024,
+    "reversion_10m": 0.0024,
+    "mean_peak_minute": 1.3333
    },
    {
     "sport": "nfl",
@@ -8094,166 +8595,166 @@
     "sport": "nhl",
     "event": "goal",
     "minute_bucket": "0-20",
-    "n": 112,
-    "n_isolated": 85,
-    "mean_abs_jump": 0.1055,
+    "n": 118,
+    "n_isolated": 91,
+    "mean_abs_jump": 0.1057,
     "median_jump": 0.12,
-    "mean_jump": 0.0994,
-    "mean_pre_price": 0.5879,
+    "mean_jump": 0.1,
+    "mean_pre_price": 0.5847,
     "reversion_1m": -0.003,
-    "reversion_5m": 0.0083,
-    "reversion_10m": 0.0161,
-    "mean_peak_minute": 4.9732
+    "reversion_5m": 0.0079,
+    "reversion_10m": 0.0153,
+    "mean_peak_minute": 4.9237
    },
    {
     "sport": "nhl",
     "event": "goal",
     "minute_bucket": "20-40",
-    "n": 146,
-    "n_isolated": 119,
-    "mean_abs_jump": 0.0663,
-    "median_jump": 0.0225,
-    "mean_jump": 0.0555,
-    "mean_pre_price": 0.6297,
+    "n": 157,
+    "n_isolated": 126,
+    "mean_abs_jump": 0.0716,
+    "median_jump": 0.029,
+    "mean_jump": 0.0598,
+    "mean_pre_price": 0.6263,
     "reversion_1m": 0.0017,
-    "reversion_5m": 0.0046,
-    "reversion_10m": 0.0125,
-    "mean_peak_minute": 4.6781
+    "reversion_5m": 0.0041,
+    "reversion_10m": 0.0113,
+    "mean_peak_minute": 4.5796
    },
    {
     "sport": "nhl",
     "event": "goal",
     "minute_bucket": "40-60",
-    "n": 108,
-    "n_isolated": 85,
-    "mean_abs_jump": 0.0843,
-    "median_jump": 0.0077,
-    "mean_jump": 0.0698,
-    "mean_pre_price": 0.5661,
-    "reversion_1m": 0.0028,
-    "reversion_5m": 0.0017,
-    "reversion_10m": 0.0034,
-    "mean_peak_minute": 3.8333
+    "n": 115,
+    "n_isolated": 92,
+    "mean_abs_jump": 0.0822,
+    "median_jump": 0.0085,
+    "mean_jump": 0.0685,
+    "mean_pre_price": 0.5676,
+    "reversion_1m": 0.0027,
+    "reversion_5m": 0.0022,
+    "reversion_10m": 0.0028,
+    "mean_peak_minute": 3.913
    },
    {
     "sport": "nhl",
     "event": "goal",
     "minute_bucket": "60+",
-    "n": 11,
-    "n_isolated": 11,
-    "mean_abs_jump": 0.1223,
-    "median_jump": 0.0015,
-    "mean_jump": 0.1223,
-    "mean_pre_price": 0.8758,
-    "reversion_1m": 0.0013,
-    "reversion_5m": 0.0015,
-    "reversion_10m": 0.0015,
-    "mean_peak_minute": 1.7273
+    "n": 13,
+    "n_isolated": 13,
+    "mean_abs_jump": 0.1107,
+    "median_jump": 0.005,
+    "mean_jump": 0.1107,
+    "mean_pre_price": 0.8868,
+    "reversion_1m": 0.0018,
+    "reversion_5m": 0.002,
+    "reversion_10m": 0.002,
+    "mean_peak_minute": 1.6923
    },
    {
     "sport": "soccer",
     "event": "goal",
     "minute_bucket": "0-15",
-    "n": 18,
-    "n_isolated": 18,
-    "mean_abs_jump": 0.0791,
-    "median_jump": 0.0375,
-    "mean_jump": 0.0707,
-    "mean_pre_price": 0.6329,
-    "reversion_1m": 0.0047,
-    "reversion_5m": 0.0011,
-    "reversion_10m": -0.0098,
-    "mean_peak_minute": 3.8333
+    "n": 29,
+    "n_isolated": 29,
+    "mean_abs_jump": 0.0846,
+    "median_jump": 0.035,
+    "mean_jump": 0.076,
+    "mean_pre_price": 0.6241,
+    "reversion_1m": 0.0036,
+    "reversion_5m": 0.0081,
+    "reversion_10m": 0.0051,
+    "mean_peak_minute": 4.4828
    },
    {
     "sport": "soccer",
     "event": "goal",
     "minute_bucket": "15-30",
-    "n": 15,
-    "n_isolated": 15,
-    "mean_abs_jump": 0.091,
-    "median_jump": 0.015,
-    "mean_jump": 0.0577,
-    "mean_pre_price": 0.5757,
-    "reversion_1m": -0.001,
-    "reversion_5m": -0.0087,
-    "reversion_10m": 0.006,
-    "mean_peak_minute": 3.9333
+    "n": 20,
+    "n_isolated": 20,
+    "mean_abs_jump": 0.0733,
+    "median_jump": 0.0,
+    "mean_jump": 0.0402,
+    "mean_pre_price": 0.6236,
+    "reversion_1m": -0.0102,
+    "reversion_5m": -0.0038,
+    "reversion_10m": 0.0081,
+    "mean_peak_minute": 4.25
    },
    {
     "sport": "soccer",
     "event": "goal",
     "minute_bucket": "30-45",
-    "n": 20,
-    "n_isolated": 18,
-    "mean_abs_jump": 0.0917,
-    "median_jump": 0.0193,
-    "mean_jump": 0.0524,
-    "mean_pre_price": 0.6568,
-    "reversion_1m": -0.013,
-    "reversion_5m": -0.0073,
-    "reversion_10m": -0.0129,
-    "mean_peak_minute": 2.3
+    "n": 27,
+    "n_isolated": 25,
+    "mean_abs_jump": 0.09,
+    "median_jump": 0.0285,
+    "mean_jump": 0.0609,
+    "mean_pre_price": 0.6432,
+    "reversion_1m": -0.0125,
+    "reversion_5m": -0.0068,
+    "reversion_10m": -0.0045,
+    "mean_peak_minute": 2.8519
    },
    {
     "sport": "soccer",
     "event": "goal",
     "minute_bucket": "45-60",
-    "n": 24,
-    "n_isolated": 22,
-    "mean_abs_jump": 0.0752,
-    "median_jump": 0.025,
-    "mean_jump": 0.0743,
-    "mean_pre_price": 0.6588,
-    "reversion_1m": 0.0017,
-    "reversion_5m": 0.0024,
-    "reversion_10m": -0.0077,
-    "mean_peak_minute": 4.8333
+    "n": 36,
+    "n_isolated": 34,
+    "mean_abs_jump": 0.0658,
+    "median_jump": 0.0175,
+    "mean_jump": 0.0541,
+    "mean_pre_price": 0.6319,
+    "reversion_1m": -0.0058,
+    "reversion_5m": -0.0043,
+    "reversion_10m": -0.0057,
+    "mean_peak_minute": 4.3889
    },
    {
     "sport": "soccer",
     "event": "goal",
     "minute_bucket": "60-75",
-    "n": 32,
-    "n_isolated": 30,
-    "mean_abs_jump": 0.0793,
-    "median_jump": 0.0252,
-    "mean_jump": 0.0769,
-    "mean_pre_price": 0.5057,
-    "reversion_1m": -0.0014,
-    "reversion_5m": 0.0014,
-    "reversion_10m": -0.0073,
-    "mean_peak_minute": 4.7812
+    "n": 41,
+    "n_isolated": 39,
+    "mean_abs_jump": 0.0782,
+    "median_jump": 0.0255,
+    "mean_jump": 0.0627,
+    "mean_pre_price": 0.5378,
+    "reversion_1m": -0.0006,
+    "reversion_5m": 0.0052,
+    "reversion_10m": 0.0082,
+    "mean_peak_minute": 5.0488
    },
    {
     "sport": "soccer",
     "event": "goal",
     "minute_bucket": "75-90",
-    "n": 19,
-    "n_isolated": 19,
-    "mean_abs_jump": 0.0706,
+    "n": 31,
+    "n_isolated": 31,
+    "mean_abs_jump": 0.0664,
     "median_jump": 0.004,
-    "mean_jump": 0.0675,
-    "mean_pre_price": 0.6516,
-    "reversion_1m": -0.0017,
-    "reversion_5m": 0.0208,
-    "reversion_10m": 0.023,
-    "mean_peak_minute": 5.1053
+    "mean_jump": 0.0638,
+    "mean_pre_price": 0.6129,
+    "reversion_1m": -0.0191,
+    "reversion_5m": -0.0097,
+    "reversion_10m": -0.0219,
+    "mean_peak_minute": 4.871
    },
    {
     "sport": "soccer",
     "event": "goal",
     "minute_bucket": "90+",
-    "n": 11,
-    "n_isolated": 11,
-    "mean_abs_jump": 0.0341,
-    "median_jump": 0.0095,
-    "mean_jump": 0.034,
-    "mean_pre_price": 0.9544,
-    "reversion_1m": 0.0012,
-    "reversion_5m": 0.0108,
-    "reversion_10m": 0.011,
-    "mean_peak_minute": 4.1818
+    "n": 19,
+    "n_isolated": 17,
+    "mean_abs_jump": 0.0714,
+    "median_jump": 0.01,
+    "mean_jump": 0.0649,
+    "mean_pre_price": 0.7115,
+    "reversion_1m": 0.0078,
+    "reversion_5m": 0.0131,
+    "reversion_10m": 0.0154,
+    "mean_peak_minute": 3.7368
    }
   ],
   "notes": [
