@@ -62,8 +62,64 @@ function OverviewBody({ o }: { o: Overview }) {
         <h2>전략 ({strategies.length})</h2>
         {strategies.length ? <StrategyTable rows={strategies} /> : <p className="muted">아직 데이터 없음</p>}
       </section>
+      <Cumulative rows={strategies} />
       <Alerts o={o} />
     </>
+  );
+}
+
+function Cumulative({ rows }: { rows: StrategySummary[] }) {
+  const lines = rows.flatMap((s) => (s.cumulative ?? []).map((c) => ({ id: s.id, ...c })));
+  const byMode = (m: string) => lines.filter((l) => l.mode === m);
+  const total = (ls: typeof lines) => {
+    const cost = ls.reduce((a, l) => a + l.cost_usdc, 0), pnl = ls.reduce((a, l) => a + l.pnl, 0);
+    return { trades: ls.reduce((a, l) => a + l.trades, 0), wins: ls.reduce((a, l) => a + l.wins, 0), pnl, roi: cost ? pnl / cost : null };
+  };
+  return (
+    <section className="section card">
+      <h2>누적 성과 (전략 × 종목, 정산 기준)</h2>
+      <p className="muted" style={{ marginTop: -6, fontSize: 13 }}>
+        처음부터 지금까지 정산된 거래. live = 실제 체결만, paper = 모의 거래. 같은 전략도 기간에 따라 live·paper 가 섞일 수 있습니다.
+      </p>
+      {!lines.length ? <p className="muted" style={{ margin: 0 }}>정산된 거래 없음</p> : (
+        <>
+          <div style={{ display: "flex", gap: "8px 24px", flexWrap: "wrap", marginBottom: 10 }}>
+            {(["live", "paper"] as const).map((m) => {
+              const t = total(byMode(m));
+              return (
+                <div key={m}>
+                  <span className="muted">{m === "live" ? "실거래 합계 " : "모의 합계 "}</span>
+                  <strong className={tone(t.pnl)}>{signedUsd(t.pnl)}</strong>
+                  <span className="muted"> · ROI {signedPct(t.roi)} · {num(t.wins)}/{num(t.trades)}승</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr><th>전략</th><th>종목</th><th>모드</th><th className="n">거래</th><th className="n">승</th>
+                  <th className="n">손익</th><th className="n">ROI</th><th>기간</th></tr>
+              </thead>
+              <tbody>
+                {lines.map((l) => (
+                  <tr key={`${l.id}-${l.sport}-${l.mode}`}>
+                    <td><a href={`/strategies/${l.id}`}>{l.id}</a></td>
+                    <td>{l.sport}</td>
+                    <td><ModeBadge mode={l.mode} /></td>
+                    <td className="n">{num(l.trades)}</td>
+                    <td className="n">{num(l.wins)}</td>
+                    <td className={`n ${tone(l.pnl)}`}>{signedUsd(l.pnl)}</td>
+                    <td className={`n ${tone(l.roi)}`}>{signedPct(l.roi)}</td>
+                    <td className="muted">{kst(l.first_at)} ~ {kst(l.last_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 

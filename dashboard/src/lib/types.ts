@@ -76,6 +76,20 @@ export interface StrategySummary {
   roi: Num;
   last_trade_at: Iso;
   last_change: { at: Iso; summary: string | null } | null;
+  /** All-time settled results per (sport, ledger mode), additive 2026-10-10. */
+  cumulative?: CumulativeRow[] | null;
+}
+
+export interface CumulativeRow {
+  sport: string;
+  mode: "live" | "paper" | string;
+  trades: number;
+  wins: number;
+  pnl: number;
+  cost_usdc: number;
+  roi: Num;
+  first_at: Iso;
+  last_at: Iso;
 }
 
 export interface Alert {

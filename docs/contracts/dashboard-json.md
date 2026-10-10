@@ -365,6 +365,10 @@ kicked off in the last 30 days (resolved first, by volume); newest kickoff first
   "maker_fee_usdc", "taker_fee_est_usdc", "fees_saved_usdc" (taker estimate − actual, venue-reported maker fills only),
   "fee_unknown_fills", "tp_orders", "tp_filled", "tp_active"}}`. Paper numbers come from the conservative trade-through
   simulation (execution/maker.py).
+- overview `strategies[].cumulative[]` (2026-10-10): all-time settled results per sport and ledger mode —
+  `{"sport", "mode": "live|paper", "trades", "wins", "pnl", "cost_usdc", "roi", "first_at", "last_at"}` (one row per
+  (sport, mode) that has settled trades; live = confirmed fills only, as everywhere). Rendered as the overview's
+  "누적 성과" table.
 - strategies/<id>.json `stake_events[].sport`: the sport a stake/mode move applied to (`null` = whole variant).
 - strategies/<id>.json: `equity_mode`, `breakdown.by_day`, `stake_events[].from_mode/to_mode`, `open_positions[].status/mode`,
   breakdown rows may carry `win_rate`/`roi`.

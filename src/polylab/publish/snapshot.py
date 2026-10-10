@@ -118,7 +118,9 @@ def strategy_summary(v: dict) -> dict:
             "pnl": s["pnl"], "pnl_mode": v["primary_mode"], "trades": s["trades"], "win_rate": s["win_rate"],
             "roi": s["roi"], "last_trade_at": s["last_trade_at"], "last_change": v["last_change"],
             # additive 2026-10-05 (`fees:maker-preferred`): order style per sport + maker execution stats per mode
-            "order_style": v.get("order_style"), "execution": v.get("execution")}
+            "order_style": v.get("order_style"), "execution": v.get("execution"),
+            # additive 2026-10-10: all-time settled results per (sport, mode), paper and live separately
+            "cumulative": v.get("cumulative") or []}
 
 
 def storage_summary(st: dict | None) -> dict | None:

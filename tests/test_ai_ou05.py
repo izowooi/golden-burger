@@ -446,3 +446,23 @@ def test_paper_order_keeps_resting_while_no_book_is_stored(tmp_path, monkeypatch
         tick(env.paths, registry_dir=reg, poll=False, now=later)
         [o] = [dict(r) for r in db.strategy(env.paths, "ai-ou05-red").execute("SELECT * FROM orders")]
         assert o["status"] == "resting" and o["cancel_reason"] is None
+
+
+def test_one_week_reminder_reports_progress():
+    from polylab.reports import reminders
+    rep = {"variants": [], "ai_ou05": {"over": {"picks": 30, "picks_resolved": 25, "picks_hit": 24, "filled": 9,
+                                                "settled": 8, "wins": 8, "mean_entry": 0.962, "pnl": 1.2,
+                                                "roi": 0.03},
+                                       "under": {"picks": 28, "picks_resolved": 24, "picks_hit": 3, "filled": 0}}}
+    before = {r["id"] for r in reminders.due(rep, 1_792_195_200 - 60)}                # 2026-10-17 00:00 UTC - 1m
+    assert "reminder:ai-ou05-1w" not in before
+    d = {r["id"]: r for r in reminders.due(rep, 1_792_195_200 + 3600)}["reminder:ai-ou05-1w"]
+    assert d["slack"] and "픽 적중 24/25" in d["detail"] and "체결 9건(평균 매수가 0.962)" in d["detail"]
+    assert "Under(0:0): 픽 28경기, 픽 적중 3/24, 체결 0건" in d["detail"]
+
+
+def test_progress_counts_picks_and_fills(tmp_path):
+    env = forecast_world(tmp_path)
+    lf.run_forecast(env.paths, now=NOW, engines=pair(), live_books=lambda t: LIVE, clock=lambda: NOW + 60)
+    p = lf.ou05_progress(env.paths, NOW + 120, since=0)
+    assert set(p) >= {"over", "under"} and p["over"]["filled"] == 0

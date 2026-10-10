@@ -515,6 +515,22 @@ def execution_stats(paths, vid: str) -> dict | None:
     return out
 
 
+def cumulative_rows(live: pd.DataFrame, paper: pd.DataFrame) -> list[dict]:
+    """All-time settled results per (sport, mode): the dashboard's cumulative table (additive 2026-10-10)."""
+    out = []
+    for mode, df in (("live", live), ("paper", paper)):
+        if df is None or df.empty:
+            continue
+        for sport, g in df.groupby(df["sport"].fillna("?")):
+            cost = float(g["cost_usdc"].sum())
+            pnl = float(g["realized_pnl"].sum())
+            out.append({"sport": sport, "mode": mode, "trades": int(len(g)), "wins": int((g["realized_pnl"] > 0).sum()),
+                        "pnl": round(pnl, 4), "cost_usdc": round(cost, 4),
+                        "roi": round(pnl / cost, 6) if cost else None,
+                        "first_at": C.iso(int(g["closed_at"].min())), "last_at": C.iso(int(g["closed_at"].max()))})
+    return sorted(out, key=lambda r: (r["sport"], r["mode"]))
+
+
 def variant_state(v, paths, core: CoreLookup, now: int, since: int, until: int) -> dict:
     df = performance.load_variant_positions(paths.strategy_db(v.id))
     live, paper = performance.settled(df, "live"), performance.settled(df, "paper")
@@ -542,6 +558,7 @@ def variant_state(v, paths, core: CoreLookup, now: int, since: int, until: int) 
             "open": opens, "recent": recent_position_rows(primary, core),
             "strategy_sport": strategy_sport_rows(v, paths, df, core, opens, since, until),
             "param_history": history, "stake_events": stakes, "changes": changes, "last_change": last_change,
+            "cumulative": cumulative_rows(live, paper),
             "order_style": _order_styles(v), "execution": execution_stats(paths, v.id),
             "_settled_live": live, "_settled_paper": paper}
 
@@ -644,7 +661,17 @@ def build(kind: str, paths, now: int | None = None, slot: str | None = None, use
             "llm_forecast": _llm_forecast(paths, since, until) if kind != "daily" else None,
             "ou05_lifecycle": _ou05_lifecycle(paths) if kind != "daily" else None,
             "manual": _manual(paths, since, until, kind, now),
+            "ai_ou05": _ai_ou05(paths, now),
             "ai": {"ran": False, "reason": None}}
+
+
+def _ai_ou05(paths, now: int) -> dict | None:
+    """ai-ou05 study progress for the owner's 1-week check (reminders `reminder:ai-ou05-1w`); never fails the report."""
+    try:
+        from polylab.research import llm_forecast as lf  # noqa: PLC0415
+        return lf.ou05_progress(paths, now)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": type(exc).__name__}
 
 
 def _llm_forecast(paths, since: int, until: int) -> dict | None:

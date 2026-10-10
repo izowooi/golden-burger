@@ -954,6 +954,50 @@ def repick_ou05(paths, reason: str, now: int | None = None,
         rdb.close()
 
 
+OU05_START = 1791558000          # 2026-10-10 00:00 KST: ai-ou05 picks begin
+
+
+def ou05_progress(paths, now: int | None = None, since: int = OU05_START) -> dict:
+    """Per side: picks (intent-to-treat, latest batch per game), their resolved 0-0 outcomes, and the ai-ou05-red
+    ledger (fills, settled, wins, mean entry price, P&L) for games kicking off since `since`. Read-only; {} on error."""
+    now = int(now if now is not None else time.time())
+    out: dict[str, Any] = {"since": since}
+    conn = connect_ro(db_path(paths))
+    try:
+        picks = canonical_ou05_picks(conn, now)
+        outcomes = {r["game_key"]: r["not_0_0"] for r in conn.execute("SELECT game_key, not_0_0 FROM outcomes")} \
+            if conn is not None else {}
+    finally:
+        if conn is not None:
+            conn.close()
+    led = {}
+    path = Path(paths.strategy_db(OU05_VARIANT))
+    if path.exists():
+        lc = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)
+        lc.row_factory = sqlite3.Row
+        try:
+            led = {(r["game_key"], r["outcome_label"]): dict(r) for r in lc.execute(
+                "SELECT game_key, outcome_label, mode, status, entry_price, shares, cost_usdc, realized_pnl FROM positions "
+                "WHERE shares > 0 AND status NOT IN ('unfilled','failed')")}
+        finally:
+            lc.close()
+    for side, label in (("over", "Over 0.5"), ("under", "Under 0.5")):
+        rows = [p for p in picks.values() if p.get("side") == side and p["kickoff"] >= since]
+        done = [p for p in rows if p["game_key"] in outcomes]
+        hits = sum(1 for p in done if (outcomes[p["game_key"]] == 1) == (side == "over"))
+        fills = [led[(p["game_key"], label)] for p in rows if (p["game_key"], label) in led]
+        settled = [f for f in fills if f["realized_pnl"] is not None]
+        cost = sum(f["cost_usdc"] or 0 for f in settled)
+        out[side] = {"picks": len(rows), "picks_resolved": len(done), "picks_hit": hits,
+                     "filled": len(fills), "settled": len(settled),
+                     "wins": sum(1 for f in settled if (f["realized_pnl"] or 0) > 0),
+                     "mean_entry": round(sum(f["entry_price"] for f in fills) / len(fills), 4) if fills else None,
+                     "pnl": round(sum(f["realized_pnl"] for f in settled), 4), "roi": round(
+                         sum(f["realized_pnl"] for f in settled) / cost, 4) if cost else None,
+                     "modes": sorted({f["mode"] for f in fills})}
+    return out
+
+
 def _insert_ou05(conn, batch_id, ts, status, rows, detail):
     with conn:
         conn.execute("INSERT INTO ou05_pick_batches(batch_id, ts, kst_date, status, rule_json, n_pool, n_over, "
