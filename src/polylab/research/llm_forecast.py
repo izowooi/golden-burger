@@ -916,6 +916,44 @@ def _store_ou05(rdb, batch_id: str, stored: dict[str, dict], games: list[GameCtx
             "under": [r for r in rows if r["side"] == "under"]}
 
 
+def repick_ou05(paths, reason: str, now: int | None = None,
+                live_books: Callable[[list[str]], dict] = fetch_live_books) -> dict:
+    """Recompute the O/U 0.5 picks of the latest ok batch from its STORED engine forecasts (no new AI run) over the
+    pool as core.db sees it now, as a new batch `<batch>-repick-<stamp>` (later batch wins). For data fixes only —
+    e.g. 2026-10-10: 9 of 33 forecast games had their Total 0.5 market missing from core.db at pick time."""
+    now = int(now if now is not None else time.time())
+    rdb = connect(db_path(paths))
+    try:
+        b = rdb.execute("SELECT * FROM consensus_batches WHERE status='ok' AND ts <= ? ORDER BY ts DESC LIMIT 1",
+                        (now,)).fetchone()
+        if b is None:
+            return {"ok": False, "reason": "no ok batch"}
+        runs = {n: [dict(r) for r in rdb.execute("SELECT * FROM forecasts WHERE run_id=?", (b[f"{n}_run_id"],))]
+                for n in ENGINES}
+        view = MarketView.open(paths, now)
+        try:
+            games = {}
+            for r in runs["claude"]:
+                g = GameCtx(r["game_key"], r["league"], r["home_team"], r["away_team"], int(r["kickoff"]), tokens={})
+                ou = ou_tokens(view, g.game_key)
+                if ou:
+                    g.over_condition, g.over_token, g.under_token = ou
+                games[g.game_key] = g
+            tokens = sorted({t for g in games.values() for t in (g.over_token, g.under_token) if t})
+            live = live_books(tokens)
+            quotes = {t: quote(t, live, view, now) for t in tokens}
+        finally:
+            view.close()
+        rows = compute_ou05_picks(runs["claude"], runs["codex"], games, quotes, now)
+        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(now))
+        batch_id = f"{b['batch_id']}-repick-{stamp}"
+        _insert_ou05(rdb, batch_id, now, "ok", rows, {"repick_of": b["batch_id"], "reason": reason[:300]})
+        return {"ok": True, "batch_id": batch_id, "n_pool": len(rows), "over": [r for r in rows if r["side"] == "over"],
+                "under": [r for r in rows if r["side"] == "under"]}
+    finally:
+        rdb.close()
+
+
 def _insert_ou05(conn, batch_id, ts, status, rows, detail):
     with conn:
         conn.execute("INSERT INTO ou05_pick_batches(batch_id, ts, kst_date, status, rule_json, n_pool, n_over, "
@@ -1074,13 +1112,14 @@ def variant_mode(variant_id: str, registry_dir: Path | None = None) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="polylab forecast")
-    ap.add_argument("action", choices=("daily", "run", "resolve", "eval"),
+    ap.add_argument("action", choices=("daily", "run", "resolve", "eval", "repick"),
                     help="daily = resolve + run + Slack (Jenkins polylab-llm-forecast)")
     ap.add_argument("--force", action="store_true", help="rerun even if today's forecast exists (logged in runs)")
     ap.add_argument("--no-slack", action="store_true")
     ap.add_argument("--max-games", type=int, default=MAX_GAMES)
     ap.add_argument("--timeout", type=int, default=ENGINE_TIMEOUT_S, help="per engine, seconds")
     ap.add_argument("--since", help="eval: kickoff since (YYYY-MM-DD)")
+    ap.add_argument("--reason", help="repick: why the picks are recomputed (stored with the batch)")
     args = ap.parse_args(argv)
     paths = settings.paths()
     if args.action == "eval":
@@ -1090,6 +1129,12 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(llm_eval.evaluate(paths, since=since), ensure_ascii=False, indent=1, default=str))
         return 0
     out: dict[str, Any] = {}
+    if args.action == "repick":
+        if not args.reason:
+            ap.error("repick needs --reason")
+        res = repick_ou05(paths, args.reason)
+        print(json.dumps(res, ensure_ascii=False, indent=1, default=str))
+        return 0 if res.get("ok") else 1
     if args.action in ("daily", "resolve"):
         out["resolve"] = resolve_outcomes(paths)
     if args.action in ("daily", "run"):

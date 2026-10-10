@@ -411,3 +411,19 @@ def test_discover_adopts_ou05_registry_markets_for_tracked_games(tmp_path):
     assert toks == {"cNo": (0, "over"), "cNu": (1, "under")}
     assert adopt_ou05_markets(env.core, ou05_store.ou05_dir(env.paths) / "registry.db", CC.load_config(),
                               NOW)["adopted"] == 0                                     # idempotent
+
+
+def test_repick_uses_stored_forecasts_and_new_pool(tmp_path):
+    env = forecast_world(tmp_path)
+    res = lf.run_forecast(env.paths, now=NOW, engines=pair(), live_books=lambda t: LIVE, clock=lambda: NOW + 60)
+    assert res["consensus"]["ou05"]["n_pool"] == 1                       # only g1 had a Total 0.5 market
+    env.market("ou2", "g2", "total", [("ov2", "Over", "over"), ("un2", "Under", "under")], volume=10)
+    env.core.execute("UPDATE markets SET line=0.5 WHERE condition_id='ou2'")
+    env.core.commit()
+    out = lf.repick_ou05(env.paths, "test fix", now=NOW + 120, live_books=lambda t: {})
+    assert out["ok"] and out["n_pool"] == 2 and "-repick-" in out["batch_id"]
+    conn = sqlite3.connect(lf.db_path(env.paths))
+    conn.row_factory = sqlite3.Row
+    picks = lf.canonical_ou05_picks(conn, NOW + 200)
+    assert set(picks) == {"g1", "g2"} and picks["g2"]["under_token"] == "un2"
+    assert conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 2  # no new AI run
