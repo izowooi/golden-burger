@@ -388,3 +388,26 @@ def test_paper_venue_infers_fine_tick_from_stored_book(tmp_path):
     v2 = PaperVenue(env2.view(now2), None)
     v2.book("ov1", now2)
     assert v2.tick("ov1") == 0.01
+
+
+def test_discover_adopts_ou05_registry_markets_for_tracked_games(tmp_path):
+    from polylab.collector import common as CC
+    from polylab.collector.discover import adopt_ou05_markets
+    from polylab.ou05 import store as ou05_store
+    env = Env(tmp_path / "rt")
+    env.game("g9", "soccer", NOW + 5 * 3600, "Napoli", "Frosinone", status="scheduled", league="sea")
+    env.game("g8", "soccer", NOW + 5 * 3600, "X", "Y", status="scheduled", league="fif")        # out of scope
+    reg = ou05_store.registry(env.paths)
+    for cid, gk in (("cN", "g9"), ("cX", "g8")):
+        reg.execute("INSERT INTO ou05_markets(condition_id, market_id, game_key, event_id, question, slug, over_token, "
+                    "under_token, game_start, closed, first_seen, updated_at, source) VALUES(?,?,?,?,?,?,?,?,?,0,1,1,'discover')",
+                    (cid, "m" + cid, gk, "e" + cid, "O/U 0.5", "s", cid + "o", cid + "u", NOW + 5 * 3600))
+    reg.commit()
+    out = adopt_ou05_markets(env.core, ou05_store.ou05_dir(env.paths) / "registry.db", CC.load_config(), NOW)
+    assert out == {"registry_open": 2, "adopted": 1}
+    assert lf.ou_tokens(env.view(NOW), "g9") == ("cN", "cNo", "cNu")
+    toks = {r[0]: (r[1], r[2]) for r in env.core.execute("SELECT token_id, outcome_index, side FROM tokens "
+                                                          "WHERE condition_id='cN'")}
+    assert toks == {"cNo": (0, "over"), "cNu": (1, "under")}
+    assert adopt_ou05_markets(env.core, ou05_store.ou05_dir(env.paths) / "registry.db", CC.load_config(),
+                              NOW)["adopted"] == 0                                     # idempotent

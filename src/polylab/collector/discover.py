@@ -41,7 +41,47 @@ US_END_DATE_SLACK_S = 10 * 86400
 SOCCER_END_DATE_SLACK_S = 2 * 3600
 
 
-def discover(conn, cfg: C.CollectorConfig | None = None, client: Client | None = None, ts: int | None = None) -> dict:
+def adopt_ou05_markets(conn, registry_path, cfg: C.CollectorConfig, ts: int) -> dict:
+    """Upsert the open Total 0.5 markets that `polylab ou05 discover` registered (data/ou05/registry.db) for tracked
+    major-league soccer games but that the extras sweep above did not join (2026-10-10: 31 such markets, e.g.
+    Napoli-Frosinone, Brest-Angers, Aston Villa-Brentford — 9 of 33 AI-forecast games were left out of the ai-ou05
+    pick pool). Token sides/indices follow Gamma's outcome order, which is Over = 0, Under = 1 for every one of the
+    877 markets present in both stores (checked 2026-10-10)."""
+    import sqlite3  # noqa: PLC0415
+    from pathlib import Path  # noqa: PLC0415
+    if not Path(registry_path).exists():
+        return {"skipped": "no ou05 registry"}
+    reg = sqlite3.connect(f"file:{registry_path}?mode=ro", uri=True, timeout=30)
+    reg.row_factory = sqlite3.Row
+    try:
+        rows = [dict(r) for r in reg.execute(
+            "SELECT condition_id, market_id, game_key, event_id, question, slug, over_token, under_token, created_at, "
+            "end_date FROM ou05_markets WHERE closed=0 AND game_key IS NOT NULL AND COALESCE(game_start, 0) >= ?",
+            (ts - 3 * 3600,))]
+    finally:
+        reg.close()
+    leagues = {x.lower() for x in cfg.soccer_leagues}
+    have = {r[0] for r in conn.execute("SELECT condition_id FROM markets WHERE market_type='total'")}
+    games = {r[0]: (r[1] or "").lower() for r in conn.execute(
+        "SELECT game_key, league FROM games WHERE sport='soccer' AND COALESCE(status,'') NOT IN ('ended','cancelled')")}
+    adopted = 0
+    with dbmod.tx(conn):
+        for r in rows:
+            if r["condition_id"] in have or games.get(r["game_key"]) not in leagues:
+                continue
+            C.upsert_market(conn, {"condition_id": r["condition_id"], "market_id": r["market_id"],
+                                   "event_id": r["event_id"], "game_key": r["game_key"], "market_type": "total",
+                                   "sports_market_type": "totals", "line": 0.5, "question": r["question"],
+                                   "slug": r["slug"], "created_at": r["created_at"], "end_date": r["end_date"]}, ts)
+            C.upsert_tokens(conn, r["condition_id"], [
+                {"token_id": r["over_token"], "outcome_index": 0, "outcome_label": "Over", "side": "over"},
+                {"token_id": r["under_token"], "outcome_index": 1, "outcome_label": "Under", "side": "under"}])
+            adopted += 1
+    return {"registry_open": len(rows), "adopted": adopted}
+
+
+def discover(conn, cfg: C.CollectorConfig | None = None, client: Client | None = None, ts: int | None = None,
+             ou05_registry=None) -> dict:
     cfg = cfg or C.load_config()
     client = client or default_client()
     ts = ts or C.now()
@@ -57,6 +97,13 @@ def discover(conn, cfg: C.CollectorConfig | None = None, client: Client | None =
             conn.commit()
             summary["sports"][sport] = {"error": repr(exc)[:300]}
         summary["sports"][sport]["secs"] = round(time.time() - t0, 2)
+    if ou05_registry is not None and "soccer" in cfg.sports:
+        try:
+            summary["ou05_adopted"] = adopt_ou05_markets(conn, ou05_registry, cfg, ts)
+        except Exception as exc:  # never block discover on the side registry
+            log.exception("ou05 adoption failed")
+            conn.rollback()
+            summary["ou05_adopted"] = {"error": repr(exc)[:300]}
     t0 = time.time()
     summary["closing"] = refresh_closed(conn, client, ts)
     summary["closing"]["secs"] = round(time.time() - t0, 2)
@@ -253,7 +300,8 @@ def main(argv: list[str] | None = None) -> int:
     run_id = C.job_start(conn, "discover")
     t0 = time.time()
     try:
-        summary = discover(conn, cfg)
+        from polylab.ou05 import store as ou05_store  # noqa: PLC0415
+        summary = discover(conn, cfg, ou05_registry=ou05_store.ou05_dir(p) / "registry.db")
         ok = not any("error" in v for v in summary["sports"].values())
     except Exception as exc:
         C.job_finish(conn, run_id, False, {"error": repr(exc)})
