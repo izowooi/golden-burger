@@ -3,7 +3,7 @@ family: cherry
 hypothesis: '전 카테고리(스포츠·정치·경제·크립토·시사…) 거래량 1만+ 마켓에서 종료 48–72시간 전 앞선 결과가 0.90–0.95 이면 정산까지
   남은 불확실성 해소로 0.95 이상으로 수렴한다(연구자 초기 cherry 개념 "0.9 근처 매수 → 0.95 근처 매도"). A arm: 연구자 원안 그대로.'
 account: blue
-mode: paper
+mode: live
 sports:
 - soccer
 stake_usdc: 5.0
@@ -68,4 +68,4 @@ notes: '2026-10-05 연구자 결정 cherry:back-to-basics 적용: 5개 종목 �
   strategies/cherry.py, 데이터 data/general). 백테스트(docs/research/backtests/2026-10-05-cherry-basics.md)에서 이 원안을 포함한
   모든 조합이 현재 수수료·측정 스프레드로 음수라 live 조건(n≥60, 전체·두 반기 ≥0)을 못 넘어 paper. A/B: tiger 는 H1 으로 고른
   백테스트 최선 셀. sports 필드는 validator 요건일 뿐 cherry 는 쓰지 않는다(categories 가 범위). 2026-10-05 이전 포지션은 진입 시
-  고정된 옛 규칙을 유지한다.'
+  고정된 옛 규칙을 유지한다. 2026-10-11 연구자 결정 `paper_ready:cherry-blue`: paper 30건 승률 100%·ROI 양수로 live(blue, 5 USDC) 전환. 주의: 8개월 백테스트는 현재 수수료·스프레드로 음수였고, 진입가 0.90–0.95 라 한 번 지면 약 13–60건의 이익이 사라지는 구조다(26건 무패는 가격이 맞다면 약 15% 확률로 우연히 나올 수 있음).'

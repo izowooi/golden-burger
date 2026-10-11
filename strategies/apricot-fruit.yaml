@@ -3,7 +3,7 @@ family: apricot
 hypothesis: '경기 후반(tick0 이후 벽시계 분)의 midpoint 선두팀은 남은 시간 대비 과소평가되어, 끝나기 전 작은 이익(TP ≤ 0.96)으로 조기 청산할 수 있다. 종목마다 진입 시각·밴드·TP
   가 다르다(2026-10-06: NFL 190분, NBA 150분, NHL 50분, MLB 60분 등). B arm: 진입가 −0.30 손절(같은 진입 규칙에서 손절의 효과).'
 account: fruit
-mode: live
+mode: paper
 sports:
   mlb:
     mode: paper
@@ -226,4 +226,4 @@ notes: 'golden-apricot Fruit 포팅. legacy 목표 $15였으나 사용자 규칙
   USDC). 2024-04~2026-10 grid (종목당 3,744–7,200셀, 현재 수수료 0.05). NFL 은 사전 등록 규칙 1–6을 통과한 셀이 18개(tick 190 일대, 엔진 재생 n=103 +2.76%)지만
   연구자 지시대로 paper 로 시작한다(결정론 승격 게이트가 paper 30건 후 판단). NBA·NHL·MLB 는 강건한 셀이 없다. 손절 0.30 arm 값: nfl n=41 ROI +1.92% (H1 -3.39
   / H2 +10.19); nba n=284 ROI -0.12% (H1 +0.56 / H2 -0.84); nhl n=52 ROI +0.83% (H1 +0.74 / H2 +0.96); mlb n=936 ROI -0.49%
-  (H1 -0.14 / H2 -0.85). 근거 docs/research/backtests/2026-10-06-us-sports.md.'
+  (H1 -0.14 / H2 -0.85). 근거 docs/research/backtests/2026-10-06-us-sports.md. 2026-10-11: 모든 종목이 paper 라 마스터 모드도 paper 로 내렸다(fruit 계좌를 late-leader-paper 실거래 후보에 배정, 한 계좌에 live 마스터는 하나).'

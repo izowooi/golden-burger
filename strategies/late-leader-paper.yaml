@@ -3,7 +3,7 @@ family: late_leader
 hypothesis: '막판 선두 수렴(연구자 2026-10-06 저녁): 무승부 없는 승패 마켓에서 경기 전 정배 가격 ≤ X 인 경기의 선두가
   경과 시간 ≥ T 이후 Y 를 아래에서 위로 넘으면, 남은 시간 대비 역전 확률이 가격보다 작아 1.0 쪽으로 수렴한다 — Y 에 사서 Z 에서
   조기 익절. (T, Y) 는 종목별 역전 확률 표로 고른다. 근거·사전 등록 docs/research/hypothesis-late-leader-convergence.md.'
-account: null
+account: fruit
 mode: paper
 sports:
   nba:
@@ -204,4 +204,4 @@ notes: '2026-10-06 연구자 피드백으로 신설(paper, 5 USDC 고정, 계좌
   n=67 +4.2%(다중 비교 점검 음수 — 약함), MLB T190/Y0.75/Z0.90/X0.60 n=57 +6.8%(한 시즌, 이웃 포함
   +0.1% — 약함). 엔진 재생(정규시즌, R7) NFL 105건 +6.27%·NHL 39건 +13.92%·NBA 67건 +4.10%·MLB
   59건 +6.96%. 단순 규칙 ''언제든 0.80 교차 매수→0.96 매도''는 전 종목 음수(NFL −2.9%, NHL −2.4%, NBA
-  −3.4%, MLB −3.0%). NFL 은 apricot-eco NFL 과 진입 경기 37% 겹침. 근거 docs/research/hypothesis-late-leader-convergence.md.'
+  −3.4%, MLB −3.0%). NFL 은 apricot-eco NFL 과 진입 경기 37% 겹침. 근거 docs/research/hypothesis-late-leader-convergence.md. 2026-10-11 연구자 결정 `account:late-leader-paper`: 실거래 계좌 fruit 배정. 모드는 paper 그대로이며, 결정론 승격 게이트를 통과한 종목(현재 후보 NFL)만 5 USDC live 로 전환된다.'
