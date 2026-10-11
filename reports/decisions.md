@@ -99,3 +99,5 @@ AI 는 이 결정을 전제로 판단한다(같은 질문을 다시 하지 않�
 - `dead_variant:cherry-tiger` — AI 회고가 백테스트 근거로 조건을 다시 맞춘다.
 - `paper_ready:cherry-blue` — 승률·ROI 모두 양수이므로 live 로 전환한다. 적용: cherry-blue live(blue, 5 USDC). 구현자 주의 기록: 8개월 백테스트는 현재 수수료·스프레드로 음수였고, 진입가 0.90–0.95 라 한 번 지면 수십 건의 이익이 사라지는 구조다 — ladder 강등 규칙이 그대로 적용된다.
 - `ai:plum-nba-paper-loss-deepening` — off 하지 않고 paper 로 표본을 더 쌓는다.
+- `ai:ai-ai-ai-goal-over-all-stop-loss-correct` — 손절 폭을 연구자 고정값에서 풀고 AI 회고가 백테스트 근거로 조정한다(선택지 3). 구현자 기록: 실거래 손절 21건(경기 24–63분) 중 이후 골이 난 16건은 손절로 약 15 USDC 손해, 0:0 으로 끝난 5건은 약 22 USDC 절약 — 합계로는 손절이 약 7 USDC 이득이었다. validator OWNER_FIXED_PARAMS 에서 stop_loss_pct·stop_loss_price 제거(0.99 이상 보유는 고정 유지).
+- `ai:ai-ai-goal-over-all-stop-loss-correct` — 위와 같음.

@@ -239,7 +239,7 @@ def test_backtest_path_respects_cooldown_bounds_and_owner_fixed_params():
     v.params["stop_loss_pct"] = 0.1
     v.bounds["stop_loss_pct"] = [0.05, 0.3, 0.05]
     c = ctx(v, facts={"goal-over-all": Facts(trades_at_version=99)})
-    (d,) = one([change("params", {"stop_loss_pct": 0.15}, vid="goal-over-all")], c, rules=WEEKLY)
+    (d,) = one([change("params", {"hold_above_price": 0.98}, vid="goal-over-all")], c, rules=WEEKLY)
     assert not d.accepted and "owner-fixed" in d.reason
     assert one([change("params", {"prob_min": 0.93}, vid="goal-over-all")], c, rules=WEEKLY)[0].accepted
 
